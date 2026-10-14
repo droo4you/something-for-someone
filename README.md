@@ -21,7 +21,7 @@ node test/shots.mjs [url]   # Playwright click-through + screenshots (needs `vit
 - **Ravers:** Bass Brawler (Dubstep), Flow Healer (House), Tempo Dancer (DnB), and Wall of Sound (Hardstyle, unlocked with Afterglow). Genre wheel: Bass > Tempo > Wall > Flow > Bass.
 - **Map stops:** Drained, Elite, Water Station, Food Truck, Lost Crew Sighting, Lost & Found, Totem Pole Shrine (Glimmerwick), DJ Boss.
 - **Stages:** Parking Lot Pregame, Entry Gates, Forest Stage, Silent Disco, Bass Tent, Ferris Wheel, Main Stage 3AM, Sunrise Set, then the endless Afterhours loop.
-- **DJ bosses** each have a gimmick: DJ Megaphone (hype), MXRROR (copies your last skill), Kaleido (you see double), DJ Nullpointer (glitches turn order), Baron Von Bassment (soaks Vibe), The Ringmaster (steals Hype), and Lady Subsonic (phase 2 is the drop).
+- **DJ bosses** each have a gimmick: MC Megaphone (hype), MXRROR (copies your last skill), Kaleido (you see double), DJ Nullpointer (glitches turn order), Baron Von Bassment (soaks Vibe), Ringmaster Revolve (steals Hype), and Lady Subsonic (phase 2 is the drop).
 - As the night goes on, things get stranger: the disco-ball moon comes out, the stages melt, and the Drained start to glitch.
 
 Lore bible: `docs/LORE.md`. Power-ups are festival magic only, with no substance references.
