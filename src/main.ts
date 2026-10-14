@@ -11,7 +11,7 @@ import { Battle, elMult, type Unit, type Action } from './engine/battle';
 import * as R from './engine/run';
 import { loadMeta, saveMeta, UPGRADES, type Meta } from './engine/meta';
 import { newSeed, RNG } from './engine/rng';
-import { heroFrames, enemyFrames, staticSprite } from './ui/spritecache';
+import { heroFrames, heroFramesLo, enemyFrames, staticSprite } from './ui/spritecache';
 import { animSprite } from './ui/anim';
 import { Scene, THEMES } from './ui/scene';
 import { installFrames } from './ui/frames';
@@ -74,7 +74,7 @@ const STATUS_COL: Record<string, string> = { burn: '#ff3ec8', soak: '#3ae8ff', b
 const POT_COL: Record<string, string | undefined> = { water: undefined, electrolyte: '#ff9a2a', coconut: '#e8f0e0' };
 const potIcon = (id: string, px = 16) => POTION[id].kind === 'food' ? miscIcon('food', px) : miscIcon('potion', px, POT_COL[id]);
 const themeFor = (depth: number) => ({ ...(depth === SUNRISE_DEPTH ? THEMES.sunrise : THEMES[R.region(depth).id] ?? THEMES.lot), warp: R.warpLevel(depth) });
-function heroStatic(id: string, scale: number, evo = 0) { return staticSprite(heroFrames(id, evo), scale); }
+function heroStatic(id: string, scale: number, evo = 0) { return staticSprite(scale < 2 ? heroFramesLo(id, evo) : heroFrames(id, evo), scale); }
 
 function topbar(extra = '') {
   if (!run) return '';
@@ -113,7 +113,7 @@ function titleScreen() {
     e => { if (e.key === 'Enter') heroSelect(); });
   const cv = app.querySelector<HTMLCanvasElement>('canvas.scene')!;
   scene = new Scene(cv, THEMES.title, 0.22, true); scene.scroll = 1;
-  const fr = heroFrames(heroId, 0); scene.walker = { frames: fr.walk, x: Math.round(scene.w * 0.18), y: scene.groundY + 4 };
+  const fr = heroFramesLo(heroId, 0); scene.walker = { frames: fr.walk, x: Math.round(scene.w * 0.18), y: scene.groundY + 4 };
   scene.start();
 }
 
@@ -145,7 +145,7 @@ function startRun(heroId: string, seed: string) { run = R.newRun(heroId, seed, m
 function sceneBanner(depth: number, walk = true) {
   const cv = app.querySelector<HTMLCanvasElement>('canvas.scene'); if (!cv || !run) return;
   scene = new Scene(cv, themeFor(depth), 0.28, walk, 80); scene.scroll = walk ? 0.8 : 1;
-  const fr = heroFrames(run.heroId, run.evo); scene.walker = { frames: walk ? fr.walk : fr.idle, x: Math.round(scene.w * 0.42), y: scene.groundY + 6 };
+  const fr = heroFramesLo(run.heroId, run.evo); scene.walker = { frames: walk ? fr.walk : fr.idle, x: Math.round(scene.w * 0.42), y: scene.groundY + 6 };
   scene.start();
 }
 function regionIntro() {
@@ -233,7 +233,7 @@ function mapScreen() {
     return `<button class="node ${st} ${n.type}" style="left:${pos.xOf(n.col)}px;top:${pos.yOf(n.y)}px" ${isAvail ? `data-a="n_${n.col}_${n.row}"` : 'disabled'} title="${NODE_LABEL[n.type]}"><img class="px" src="${medallion(n.type, st as any)}" width="${sz}" height="${sz}" alt="${NODE_LABEL[n.type]}"></button>`;
   }).join('') + (r.pos ? `<div class="map-hero" style="left:${pos.xOf(r.pos.col)}px;top:${pos.yOf(r.map[r.pos.col][r.pos.row].y)}px"></div>` : `<div class="map-hero" style="left:${pos.xOf(0) - 34}px;top:${pos.yOf(0.5)}px"></div>`);
   bindIn(nodesEl, acts);
-  const mh = app.querySelector('.map-hero'); if (mh) mh.appendChild(animSprite(heroFrames(r.heroId, r.evo), 1).el);
+  const mh = app.querySelector('.map-hero'); if (mh) mh.appendChild(animSprite(heroFramesLo(r.heroId, r.evo), 1).el);
   put('#map_h', animSprite(heroFrames(r.heroId, r.evo), 2).el);
   const mw = app.querySelector<HTMLElement>('.mapwrap'); if (mw && r.pos) mw.scrollLeft = Math.max(0, pos.xOf(r.pos.col) - 120);
 }
@@ -430,7 +430,7 @@ function updateCombat() {
     if (!u.alive) el.classList.add('dead');
   }
   const tb = app.querySelector('#turnbar')!; const mobile = window.innerWidth < 640;
-  tb.innerHTML = `<span class="tl">TURN</span>` + b.preview(mobile ? 5 : 8).map((u, i) => `<div class="tb ${u.isHero ? 'hero' : ''} ${i === 0 ? 'now' : ''}" title="${esc(u.name)}"><img class="px" src="${unitFrames(u).idle[0].toDataURL()}"></div>`).join('');
+  tb.innerHTML = `<span class="tl">TURN</span>` + b.preview(mobile ? 5 : 8).map((u, i) => `<div class="tb ${u.isHero ? 'hero' : ''} ${i === 0 ? 'now' : ''}" title="${esc(u.name)}"><img class="px" src="${(u.isHero ? heroFramesLo(run!.heroId, run!.evo) : unitFrames(u)).idle[0].toDataURL()}"></div>`).join('');
   const disabled = animating || !b.waiting || !!b.over;
   const acts = app.querySelector<HTMLElement>('#actions')!;
   acts.innerHTML = `<div class="row"><div class="energy"><span class="tiny">VIBE</span> ${Array.from({ length: b.maxEnergy }, (_, i) => `<i class="${i < b.energy ? 'on' : ''}"></i>`).join('')}</div>

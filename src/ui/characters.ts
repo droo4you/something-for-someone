@@ -2,7 +2,7 @@
 import { Pix } from './pix';
 export interface Pose { f: number; walk?: number; evo?: number; phase?: number }
 type Draw = (p: Pix, o: Pose) => void;
-export interface SpriteDef { w: number; h: number; draw: Draw; aura?: (o: Pose) => string | null }
+export interface SpriteDef { w: number; h: number; draw: Draw; aura?: (o: Pose) => string | null; res?: number }
 
 const BOB = [0, 0, 1, 1];
 const SKIN = "#f6c9a0";
@@ -12,128 +12,8 @@ function eyes(p: Pix, x: number, y: number, gap: number, col = '#2a1b2e', h = 3,
 }
 function blush(p: Pix, x: number, y: number, gap: number) { const B = p.flat('#f08a8a'); p.rect(x, y, 2, 1, B); p.rect(x + gap, y, 2, 1, B); }
 
-// ---------------------------------------------------------------- HEROES (48x52, face right)
-interface ChibiCfg { hair: string; body: string; trim: string; pants: string; boots: string; cape?: string; skin?: string; eye?: string }
-function chibiBase(p: Pix, o: Pose, c: ChibiCfg, parts: { backHair?: (b: number) => void; fringe?: (b: number) => void; weapon?: (b: number, arm: number) => void; backItem?: (b: number) => void; armor?: (b: number) => void }) {
-  const b = BOB[o.f % 4]; const wk = o.walk ?? -1;
-  const S = p.mat(c.skin ?? SKIN), BD = p.mat(c.body), TR = p.mat(c.trim), PA = p.mat(c.pants), BO = p.mat(c.boots);
-  if (c.cape) { const CP = p.mat(c.cape); const sway = (o.f % 2) + (wk >= 0 ? 2 : 0); p.poly([[17, 28 + b], [27, 28 + b], [24 - sway, 46], [10 - sway, 47], [12, 36]], CP); }
-  parts.backItem?.(b);
-  parts.backHair?.(b);
-  // legs
-  const l1 = wk < 0 ? 0 : [0, -2, 0, 2][wk], l2 = -l1;
-  p.rect(19 + l1, 40, 4, 6, PA); p.rect(25 + l2, 40, 4, 6, PA);
-  p.rect(18 + l1, 45, 6, 3, BO); p.rect(24 + l2, 45, 6, 3, BO);
-  // torso
-  p.poly([[17, 29 + b], [31, 29 + b], [32, 41], [16, 41]], BD);
-  p.rect(16, 39, 17, 2, TR);
-  p.rect(23, 30 + b, 2, 9, TR);
-  parts.armor?.(b);
-  // back arm
-  p.ell(16, 33 + b, 2.5, 3.5, BD); p.ell(15, 37 + b, 2, 2, S);
-  // head
-  p.ell(24, 18 + b, 11.5, 10.5, S);
-  p.ell(14, 19 + b, 2, 3, S); // ear
-  eyes(p, 25, 17 + b, 6, c.eye ?? '#2a1b2e', 5, 3); blush(p, 23, 23 + b, 10);
-  const M = p.flat('#b0574a'); p.rect(29, 25 + b, 2, 1, M);
-  parts.fringe?.(b);
-  // front arm + weapon
-  const arm = wk >= 0 ? [0, 1, 0, -1][wk] : 0;
-  p.ell(32, 33 + b + arm, 2.5, 3.5, BD); p.ell(33, 37 + b + arm, 2, 2, S);
-  parts.weapon?.(b, arm);
-}
-const heroAuras: Record<string, string[]> = { bass: ['', '#ff3ec8', '#d070ff'], flow: ['', '#3ae8ff', '#b8f6ff'], tempo: ['', '#b8ff3a', '#e8ff9a'], wall: ['', '#ff9a2a', '#ffcf3a'] };
 const NEON = (p: Pix, c: string) => p.mat(c, { glow: true });
-
-const bass: Draw = (p, o) => {
-  const e = o.evo ?? 0;
-  chibiBase(p, o, { hair: '#ff3ec8', body: e >= 2 ? '#3a1a4a' : '#2a2238', trim: e >= 1 ? '#ff3ec8' : '#b04aff', pants: '#1c1a2a', boots: '#4a2a5a', cape: e >= 1 ? (e >= 2 ? '#6a1a8a' : '#4a2268') : undefined }, {
-    backItem: b => { if (e >= 2) { const SP = p.mat('#2a2238'), CN = p.mat('#4a3a5a'); p.rect(8, 22 + b, 10, 16, SP); p.ell(13, 27 + b, 3, 3, CN); p.ell(13, 34 + b, 3, 3, CN); p.px(13, 27 + b, p.flat('#ff3ec8')); p.px(13, 34 + b, p.flat('#ff3ec8')); } },
-    backHair: b => { const H = p.mat('#c02a9a'); p.ell(22, 15 + b, 11, 8, H); },
-    fringe: b => {
-      const H = p.mat('#ff3ec8');
-      // mohawk
-      p.poly([[16, 10 + b], [18, -1 + b + 1], [21, 6 + b], [24, -2 + b + 2], [27, 6 + b], [30, 0 + b + 1], [32, 10 + b], [24, 12 + b]], H);
-      const SH = p.mat('#3a2a4a'); p.poly([[12, 16 + b], [14, 9 + b], [20, 7 + b], [18, 12 + b], [15, 18 + b]], SH); // shaved side
-      if (e >= 1) { const V = NEON(p, e >= 2 ? '#ffe03a' : '#3ae8ff'); p.rect(22, 15 + b, 13, 3, V); p.px(33, 15 + b, p.flat('#ffffff')); }
-      if (e >= 2) { const L = NEON(p, '#ff3ec8'); for (const [x, y] of [[17, -1], [24, -3], [31, -1]]) p.line(x, 8 + b, x + (x - 24) * 0.2, y + b + 3, L); }
-    },
-    armor: b => { const HP = p.mat('#3ae8ff'); p.curve(17, 29 + b, 24, 33 + b, 31, 29 + b, HP, 2); p.ell(17, 29 + b, 2, 2, HP); p.ell(31, 29 + b, 2, 2, HP); },
-    weapon: (b, a) => {
-      // subwoofer gauntlet
-      const G = p.mat(e >= 2 ? '#4a2a6a' : '#3a3048'), C = p.mat('#1a1428'), R = NEON(p, e >= 1 ? '#ff3ec8' : '#b04aff');
-      const s = e >= 1 ? 1 : 0;
-      p.rect(31, 31 + b + a - s, 11 + s, 11 + s * 2, G); p.ell(36.5, 36.5 + b + a, 4 + s * 0.5, 4 + s * 0.5, R); p.ell(36.5, 36.5 + b + a, 2.5, 2.5, C); p.px(36, 36 + b + a, p.flat('#ffffff'));
-      if (o.f % 2 && e >= 1) { const W = p.flat('#ff9ae8'); p.px(44, 34 + b + a, W); p.px(45, 38 + b + a, W); }
-    },
-  });
-};
-const flow: Draw = (p, o) => {
-  const e = o.evo ?? 0;
-  chibiBase(p, o, { hair: '#3ae8ff', body: e >= 2 ? '#ffffff' : '#e8f0ff', trim: '#3ae8ff', pants: '#2a3a6a', boots: '#e8f0ff', cape: e >= 1 ? (e >= 2 ? '#b8f6ff' : '#2a6ab0') : undefined }, {
-    backHair: b => { const H = p.mat('#20b8d8'); p.ell(22, 15 + b, 12, 10, H); p.poly([[12, 16 + b], [22, 16 + b], [20, 40], [14, 42 + (o.f % 2)], [10, 34]], H); },
-    fringe: b => {
-      const H = p.mat('#3ae8ff');
-      p.poly([[12, 16 + b], [14, 7 + b], [22, 4 + b], [32, 6 + b], [36, 14 + b], [31, 11 + b], [27, 15 + b], [24, 11 + b], [19, 15 + b], [15, 19 + b]], H);
-      const ST = p.flat('#ffffff'); p.px(30, 22 + b, ST); p.px(20, 8 + b, p.flat('#ff6ad8')); p.px(21, 8 + b, p.flat('#ff6ad8')); // face gem + clip
-      if (e >= 1) { const F = NEON(p, '#ff9ae8'); for (const [x, y] of [[15, 6], [18, 3], [22, 2]]) p.ell(x, y + b, 1.5, 1.5, F); }
-    },
-    armor: b => { const SK = p.mat(e >= 2 ? '#b8f6ff' : '#3a6ad8'); p.poly([[16, 41], [32, 41], [34, 46], [14, 46]], SK); p.rect(16, 44, 18, 1, p.flat('#3ae8ff')); },
-    weapon: (b, a) => {
-      // LED hoop
-      const H = NEON(p, e >= 2 ? '#ffffff' : '#3ae8ff'), H2 = NEON(p, '#ff6ad8');
-      const cx = 38, cy = 30 + b + a, r = e >= 1 ? 11 : 9;
-      for (let i = 0; i < 40; i++) { const an = (i / 40) * Math.PI * 2; p.px(cx + Math.cos(an) * r * 0.45, cy + Math.sin(an) * r, (i + o.f * 3) % 10 < 5 ? H : H2); }
-    },
-  });
-  if ((o.evo ?? 0) >= 2) { const HL = NEON(p, '#b8f6ff'); for (let x = 16; x <= 32; x++) p.px(x, 1, HL); }
-};
-const tempo: Draw = (p, o) => {
-  const e = o.evo ?? 0;
-  chibiBase(p, o, { hair: '#b8ff3a', body: '#26204a', trim: '#b8ff3a', pants: '#26204a', boots: '#ffffff', cape: undefined }, {
-    backItem: b => { const SC = NEON(p, e >= 2 ? '#e8ff9a' : '#b8ff3a'); const len = e >= 1 ? 14 : 8; const sw = o.f % 2; p.curve(18, 28 + b, 10, 26 + sw * 2, 18 - len, 22 + sw * 3, SC, 3, true); if (e >= 2) { const WG = NEON(p, '#3affd8'); p.poly([[14, 30 + b], [2, 18 + b + sw], [6, 30 + b], [1, 34 + b], [12, 36 + b]], WG); } },
-    backHair: b => { const H = p.mat('#8ad82a'); p.ell(22, 15 + b, 12, 10, H); p.ell(14, 6 + b, 5, 5, H); p.ell(30, 5 + b, 5, 5, H); },
-    fringe: b => {
-      const H = p.mat('#b8ff3a');
-      p.poly([[12, 17 + b], [13, 7 + b], [20, 4 + b], [30, 5 + b], [37, 11 + b], [33, 12 + b], [35, 16 + b], [29, 12 + b], [25, 14 + b], [21, 10 + b], [16, 15 + b]], H);
-      if (e >= 2) { const V = NEON(p, '#ff3ec8'); p.rect(22, 15 + b, 14, 3, V); }
-    },
-    armor: b => { const ST = p.flat('#ffffff'); p.rect(17, 31 + b, 1, 9, ST); p.rect(30, 31 + b, 1, 9, ST); },
-    weapon: (b, a) => {
-      const G1 = NEON(p, '#b8ff3a'), G2 = NEON(p, '#ff3ec8');
-      p.line(34, 38 + b + a, 42, 26 + b + a - (o.f % 2), G1, 2);
-      p.line(13, 38 + b, 6, 28 + b + (o.f % 2), G2, 2);
-      if (e >= 1) { const W = p.flat('#ffffff'); p.px(42, 25 + b + a, W); p.px(6, 27 + b, W); }
-    },
-  });
-};
-const wall: Draw = (p, o) => {
-  const e = o.evo ?? 0;
-  chibiBase(p, o, { hair: '#ff9a2a', body: e >= 2 ? '#4a3a5a' : '#3a2a48', trim: '#ffcf3a', pants: '#2a2038', boots: '#1a1424', skin: '#e9be93', cape: e >= 1 ? '#5a3a20' : undefined }, {
-    backHair: b => { const H = p.mat('#d8701a'); p.ell(22, 15 + b, 12, 9, H); },
-    fringe: b => {
-      const H = p.mat('#ff9a2a');
-      p.poly([[12, 15 + b], [14, 6 + b], [22, 3 + b], [32, 5 + b], [36, 13 + b], [30, 10 + b], [24, 12 + b], [18, 10 + b], [14, 17 + b]], H);
-      const BD = p.mat('#2a2038'); p.rect(12, 9 + b, 24, 3, BD); p.px(20, 10 + b, p.flat('#ffcf3a'));
-      if (e >= 2) { const CR = NEON(p, '#ffcf3a'); p.poly([[16, 9 + b], [18, 1 + b], [21, 9 + b]], CR); p.poly([[22, 9 + b], [24, -1 + b + 1], [27, 9 + b]], CR); p.poly([[28, 9 + b], [31, 1 + b], [33, 9 + b]], CR); }
-    },
-    armor: b => { const PA = p.mat(e >= 1 ? '#5a4a6a' : '#4a3a5a'); p.ell(16, 30 + b, 5, 4, PA); p.ell(32, 30 + b, 5, 4, PA); p.rect(19, 33 + b, 10, 2, p.flat('#ffcf3a')); },
-    weapon: (b, a) => {
-      // speaker shield
-      const big = e >= 1 ? 2 : 0;
-      const SH = p.mat('#2a2238'), RM = p.mat('#ffcf3a'), CN = p.mat('#4a3a5a'), LED = NEON(p, e >= 2 ? '#ff3ec8' : '#ff9a2a');
-      p.rect(29 - big, 22 + b + a - big, 15 + big * 2, 23 + big * 2, RM); p.rect(30 - big, 23 + b + a - big, 13 + big * 2, 21 + big * 2, SH);
-      p.ell(36.5, 29 + b + a, 4 + big * 0.5, 4 + big * 0.5, CN); p.ell(36.5, 29 + b + a, 1.5, 1.5, LED);
-      p.ell(36.5, 39 + b + a, 3, 3, CN); p.px(36, 39 + b + a, p.flat('#000000'));
-    },
-  });
-};
-export const HERO_SPRITES: Record<string, SpriteDef> = {
-  bass: { w: 48, h: 50, draw: bass, aura: o => heroAuras.bass[o.evo ?? 0] || null },
-  flow: { w: 48, h: 50, draw: flow, aura: o => heroAuras.flow[o.evo ?? 0] || null },
-  tempo: { w: 48, h: 50, draw: tempo, aura: o => heroAuras.tempo[o.evo ?? 0] || null },
-  wall: { w: 48, h: 50, draw: wall, aura: o => heroAuras.wall[o.evo ?? 0] || null },
-};
+export { HERO_SPRITES } from './heroart';
 
 // ---------------------------------------------------------------- ENEMIES (face left)
 const E: Record<string, SpriteDef> = {};

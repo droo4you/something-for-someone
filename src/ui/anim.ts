@@ -1,10 +1,10 @@
 // Drives idle/walk frame animation for every on-screen sprite with a single timer.
-import type { Frames } from './spritecache';
+import { cssScale, type Frames } from './spritecache';
 interface Entry { cv: HTMLCanvasElement; fr: Frames; walk: boolean; phase: number; flashUntil: number; last: number }
 const live: Entry[] = []; let timer = 0;
 export function animSprite(fr: Frames, scale: number, opts: { walk?: boolean; phase?: number } = {}): { el: HTMLCanvasElement; flash: () => void; set: (f: Frames) => void } {
   const cv = document.createElement('canvas'); cv.width = fr.w; cv.height = fr.h; cv.className = 'px spr-cv';
-  cv.style.width = fr.w * scale + 'px'; cv.style.height = fr.h * scale + 'px';
+  const k = cssScale(fr, scale); cv.style.width = fr.w * k + 'px'; cv.style.height = fr.h * k + 'px';
   const e: Entry = { cv, fr, walk: !!opts.walk, phase: opts.phase ?? Math.floor(Math.random() * 4), flashUntil: 0, last: -1 };
   live.push(e); draw(e, 0); ensure();
   return { el: cv, flash: () => { e.flashUntil = performance.now() + 110; e.last = -1; draw(e, tick); }, set: f => { e.fr = f; e.last = -1; draw(e, tick); } };
