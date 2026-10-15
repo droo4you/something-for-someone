@@ -66,9 +66,42 @@ function skillLine(s: OwnedSkill) { const d = SKILL[s.id]; return `${esc(d.name)
 function skillCard(id: string, up = false, extra = '') {
   const d = SKILL[id];
   return `<div class="row"><b>${esc(d.name)}${up ? '+' : ''}</b><span class="grow"></span>${rar(d.rarity)}</div>
-    <div class="small">Cost ${d.cost} &middot; ${d.el ? elName(d.el) : 'Hero element'}</div><div class="small">${esc(d.desc)}${up ? ' <i>(Upgraded: +30% power, +1 status)</i>' : ''}</div>${extra}`;
+    <div class="small">Cost ${d.cost} &middot; ${d.el ? elName(d.el) : 'Hero element'}</div><div class="small">${kwHtml(d.desc)}${up ? ' <i>(Upgraded: +30% power, +1 status)</i>' : ''}</div>${extra}`;
 }
 const STATUS_DESC: Record<string, string> = { burn: 'Feedback: takes N damage at turn start, then N-1.', soak: 'Muffled: -30% SPD.', bleed: 'Drain: takes N damage at turn start; stacks decay 40%.', stun: 'Dazzled: skips its turn.', shield: 'Guard: absorbs damage; halves each turn.', strength: 'Hype: +30% damage (turns).', weak: 'Tired: -25% damage (turns).', thorns: 'Spikes: attackers take 2xN damage.' };
+/** Tooltip text for a status with its live value (n). */
+function statusTip(k: string, n?: number): string {
+  const v = n ?? 0; const has = n !== undefined;
+  switch (k) {
+    case 'burn': return has ? `FEEDBACK ${v}: takes ${v} damage at the start of its turn, then it drops by 1 (${v} > ${Math.max(0, v - 1)}). Ignores DEF and Guard.` : 'FEEDBACK: takes damage equal to its stacks at the start of its turn, then loses 1 stack. Ignores DEF and Guard.';
+    case 'bleed': return has ? `DRAIN ${v}: takes ${v} damage at the start of its turn, then 60% of the stacks remain (${v} > ${Math.floor(v * 0.6)}). Ignores DEF and Guard.` : 'DRAIN: takes damage equal to its stacks at turn start, then keeps 60% of them. Ignores DEF and Guard.';
+    case 'soak': return `MUFFLED${has ? ' ' + v : ''}: SPD -30%, so it acts later in the turn order.${has ? ` ${v} turn${v === 1 ? '' : 's'} left.` : ' Lasts N turns.'}`;
+    case 'stun': return `DAZZLED${has ? ' ' + v : ''}: skips its next turn${has && v > 1 ? 's (' + v + ')' : ''}. DJ bosses shrug it off 50% of the time.`;
+    case 'shield': return has ? `GUARD ${v}: absorbs the next ${v} damage before Energy is lost. Half of it fades at the start of the owner's turn.` : 'GUARD: absorbs damage before Energy/HP. Half of it fades at the start of the owner\'s turn.';
+    case 'strength': return `HYPE${has ? ' ' + v : ''}: deals +30% damage.${has ? ` ${v} turn${v === 1 ? '' : 's'} left.` : ' Lasts N turns.'}`;
+    case 'weak': return `TIRED${has ? ' ' + v : ''}: deals -25% damage.${has ? ` ${v} turn${v === 1 ? '' : 's'} left.` : ' Lasts N turns.'}`;
+    case 'thorns': return has ? `SPIKES ${v}: every enemy that hits you takes ${v * 2} damage back.` : 'SPIKES: every enemy that hits you takes 2 x stacks damage back.';
+  }
+  return '';
+}
+const KW: [RegExp, string][] = [
+  [/\bFeedback\b/g, statusTip('burn')], [/\bMuffled\b/g, statusTip('soak')], [/\bDrain\b/g, statusTip('bleed')], [/\bDazzle[ds]?\b/g, statusTip('stun')],
+  [/\bGuard\b/g, statusTip('shield')], [/\bHype\b/g, statusTip('strength')], [/\bTired\b/g, statusTip('weak')], [/\bSpikes\b/g, statusTip('thorns')],
+  [/\bVibe\b/g, 'VIBE: pays for skills. +1 at the start of each of your turns, +1 for Dance or Catch the Beat.'],
+  [/\bEnergy\b/g, 'ENERGY: your HP. At 0 you crash and the night ends.'],
+  [/\bcrit\b/g, 'CRIT: a critical hit multiplies damage (x1.6 base) before DEF is subtracted.'],
+  [/\bATK\b/g, 'ATK: your attack stat. Skill damage = ATK x power %, then minus target DEF.'],
+  [/\bDEF\b/g, 'DEF: subtracted from every hit you take (minimum 1 damage).'],
+  [/\bCleanse\b/g, 'CLEANSE: removes Feedback, Drain, Muffled, Tired and Dazzled from you.'],
+];
+/** Escape text, clarify "% dmg" and wrap keywords in tooltip spans. */
+function kwHtml(text: string): string {
+  let t = text.replace(/(\d+)% dmg/g, '$1% ATK dmg').replace(/for (\d+)%/g, 'for $1% ATK').replace(/(\d+)% to all/g, '$1% ATK to all').replace(/[Dd]eal (\d+)%(?! ATK)/g, m => m + ' ATK');
+  t = esc(t);
+  // single pass so tooltip text is never re-scanned for keywords
+  const all = new RegExp(KW.map(([re]) => re.source).join('|'), 'g');
+  return t.replace(all, m => { const hit = KW.find(([re]) => new RegExp('^(?:' + re.source + ')$').test(m)); return hit ? `<span class="kw" data-tip="${esc(hit[1])}">${m}</span>` : m; });
+}
 const STATUS_ABBR: Record<string, string> = { burn: 'FDBK', soak: 'MUFF', bleed: 'DRAIN', stun: 'DAZZ', shield: 'GUARD', strength: 'HYPE', weak: 'TIRED', thorns: 'SPIKE' };
 const STATUS_COL: Record<string, string> = { burn: '#ff3ec8', soak: '#3ae8ff', bleed: '#b8ff3a', stun: '#ffe066', shield: '#ffcf3a', strength: '#ff8ae0', weak: '#b8b0e0', thorns: '#6affd8' };
 const POT_COL: Record<string, string | undefined> = { water: undefined, electrolyte: '#ff9a2a', coconut: '#e8f0e0' };
@@ -375,13 +408,61 @@ function startBattle(type: R.NodeType) {
   battle.start();
   playEvents();
 }
+function dmgLine(b: Battle, i: number, tgt: Unit): string {
+  const pv = b.skillPreview(i, tgt); if (!pv.length) return '';
+  return pv.map(p => `<span class="dmgl"><b class="dn">${p.n}</b> dmg${p.hits > 1 ? ` x${p.hits}` : ''}${p.aoe ? ' to all' : ''} <span class="muted">(${p.pct}% ATK${p.flat ? ` +${p.flat}` : ''}${p.em > 1 ? ' x1.5 SUPER' : p.em < 1 ? ' x0.75 resisted' : ''})</span></span>`).join('');
+}
+function helpPanel(b: Battle) {
+  closeHelp();
+  const h = b.hero; const wheel = `<span class="el-fire">Bass</span> &gt; <span class="el-wind">Tempo</span> &gt; <span class="el-earth">Wall</span> &gt; <span class="el-water">Flow</span> &gt; <span class="el-fire">Bass</span>`;
+  const ov = document.createElement('div'); ov.className = 'help-ov'; ov.innerHTML = `<div class="panel dark help">
+    <div class="row"><h2>How combat works</h2><span class="grow"></span><button data-x="1">CLOSE</button></div>
+    <h3>Turn order</h3><p class="small">You always move first in a fight. After that, everyone acts once per round from highest to lowest <b>SPD</b> (yours: ${h.spd}). The strip at the top shows who's next. Muffled slows a unit by 30%.</p>
+    <h3>Energy &amp; Vibe</h3><p class="small"><b>Energy</b> is your HP (${h.hp}/${h.maxHp}). At 0 you crash. <b>Vibe</b> (${b.energy}/${b.maxEnergy}) pays for skills: +1 at the start of your turn, +1 when you Dance or Catch the Beat.</p>
+    <h3>Your actions</h3><p class="small"><b>Dance</b>: basic attack, 100% ATK, +1 Vibe. <b>Catch the Beat</b>: take 50% less damage until your next turn, gain 3 + DEF Guard (${3 + h.def}), +1 Vibe. <b>Skills</b> cost Vibe and show their real damage against your target. <b>Hydration</b> is a free action; <b>Food</b> uses your turn.</p>
+    <h3>Damage</h3><p class="small dmgf">damage = ATK x power% x Hype 1.3 / Tired 0.75 x genre (1.5 or 0.75) - target DEF <span class="muted">(min 1; crits x${b.critMult} before DEF; Catch the Beat halves it; Guard absorbs it first)</span></p>
+    <p class="small">Your ATK right now: <b>${Math.round(b.atkOf(h))}</b>, DEF <b>${h.def}</b>. Enemy intents show the exact damage they will deal you.</p>
+    <h3>Genre wheel</h3><p class="small">${wheel}. Hitting the genre you beat is <b>SUPER EFFECTIVE x1.5</b>; hitting the genre that beats you is <b>RESISTED x0.75</b>.</p>
+    <h3>Status effects</h3><div class="small help-st">${['burn', 'bleed', 'soak', 'stun', 'shield', 'strength', 'weak', 'thorns'].map(k => `<div class="row" style="align-items:flex-start;gap:6px">${statusIcon(k, 14)}<span>${esc(statusTip(k))}</span></div>`).join('')}</div>
+  </div>`;
+  ov.addEventListener('click', e => { if (e.target === ov || (e.target as HTMLElement).closest('[data-x]')) closeHelp(); });
+  document.body.appendChild(ov);
+}
+function closeHelp() { document.querySelectorAll('.help-ov').forEach(x => x.remove()); }
+// ---- tooltips: hover on desktop, long-press (or tap on info-only items) on touch
+const tipEl = document.createElement('div'); tipEl.className = 'tip'; document.body.appendChild(tipEl);
+let tipFor: Element | null = null; let pressT = 0; let suppressClick = false; let lastTouch = 0;
+function showTip(el: Element) {
+  const t = el.getAttribute('data-tip'); if (!t) return; tipFor = el; tipEl.textContent = t; tipEl.style.display = 'block';
+  const r = el.getBoundingClientRect(); const tw = Math.min(300, window.innerWidth - 16); tipEl.style.maxWidth = tw + 'px';
+  const th = tipEl.offsetHeight; let x = r.left + r.width / 2 - tipEl.offsetWidth / 2; x = Math.max(8, Math.min(window.innerWidth - tipEl.offsetWidth - 8, x));
+  let y = r.top - th - 8; if (y < 8) y = r.bottom + 8; tipEl.style.left = x + 'px'; tipEl.style.top = y + 'px';
+}
+function hideTip() { tipFor = null; tipEl.style.display = 'none'; }
+document.addEventListener('mouseover', e => { if (performance.now() - lastTouch < 1200) return; const el = (e.target as Element).closest?.('[data-tip]'); if (el && el !== tipFor) showTip(el); else if (!el && tipFor) hideTip(); });
+document.addEventListener('pointerdown', e => {
+  if (e.pointerType !== 'touch') return; lastTouch = performance.now(); const el = (e.target as Element).closest?.('[data-tip]'); clearTimeout(pressT);
+  if (!el) { hideTip(); return; }
+  pressT = window.setTimeout(() => { showTip(el); suppressClick = true; }, 420);
+});
+document.addEventListener('pointerup', e => { clearTimeout(pressT); if (e.pointerType === 'touch') lastTouch = performance.now(); });
+document.addEventListener('click', e => {
+  if (suppressClick) { suppressClick = false; e.stopPropagation(); e.preventDefault(); return; }
+  const el = (e.target as Element).closest?.('[data-tip]');
+  if (el && !el.closest('button') && !el.closest('[data-a]')) { if (tipFor === el) hideTip(); else showTip(el); return; }
+  if (!el) hideTip();
+}, true);
+window.addEventListener('scroll', hideTip, true);
 function intentHtml(b: Battle, u: Unit) {
   const m = u.intent; if (!m || !u.alive) return '';
-  if (m.k === 'atk') { const d = b.intentDamage(u); const em = elMult(u.el, b.hero.el); return `<div class="intent atk" title="${esc(m.name)}">${intentIcon('atk')}<b>${d}${m.hits && m.hits > 1 ? 'x' + m.hits : ''}</b>${m.status ? statusIcon(m.status[0], 12) : ''}${em > 1 ? '<i>!</i>' : ''}</div>`; }
+  if (m.k === 'atk') { const d = b.intentDamage(u); const em = elMult(u.el, b.hero.el); const hits = m.hits ?? 1;
+    const tip = `${m.name}: will hit you for ${d}${hits > 1 ? ` x${hits} (${d * hits} total)` : ''} damage. ${u.name} ATK ${Math.round(b.atkOf(u))} x ${Math.round(m.mult * 100)}%${u.st.strength ? ' x1.3 Hype' : ''}${u.st.weak ? ' x0.75 Tired' : ''}${em !== 1 ? ` x${em} ${em > 1 ? 'SUPER EFFECTIVE vs your genre' : 'resisted by your genre'}` : ''} - your DEF ${b.hero.def}.${m.status ? ' Then applies ' + statusTip(m.status[0]).split(':')[0] + ' ' + m.status[1] + '.' : ''} Catch the Beat halves it; Guard absorbs it.`;
+    return `<div class="intent atk" data-tip="${esc(tip)}">${intentIcon('atk')}<b>${d}${m.hits && m.hits > 1 ? 'x' + m.hits : ''}</b>${m.status ? statusIcon(m.status[0], 12) : ''}${em > 1 ? '<i>!</i>' : ''}</div>`; }
   const ik = m.k === 'guard' ? 'guard' : m.k === 'heal' ? 'heal' : m.k === 'buff' ? 'buff' : 'debuff';
-  return `<div class="intent ${m.k}" title="${esc(m.name)}">${intentIcon(ik)}${m.k === 'debuff' || m.k === 'buff' ? statusIcon(m.status[0], 12) : ''}</div>`;
+  const what = m.k === 'guard' ? 'is going to gain Guard' : m.k === 'heal' ? 'is going to heal' : m.k === 'buff' ? `is going to buff itself (${statusTip(m.status[0]).split(':')[0]})` : `is going to debuff you (${statusTip(m.status[0]).split(':')[0]})`;
+  return `<div class="intent ${m.k}" data-tip="${esc(m.name + ': ' + what + '. No damage this turn.')}">${intentIcon(ik)}${m.k === 'debuff' || m.k === 'buff' ? statusIcon(m.status[0], 12) : ''}</div>`;
 }
-function statusHtml(u: Unit) { return Object.entries(u.st).filter(([, v]) => v).map(([k, v]) => `<span class="st" style="--sc:${STATUS_COL[k]}" title="${esc(STATUS_DESC[k])}">${statusIcon(k, 14)}<b>${v}</b></span>`).join(''); }
+function statusHtml(u: Unit) { return Object.entries(u.st).filter(([, v]) => v).map(([k, v]) => `<span class="st" style="--sc:${STATUS_COL[k]}" data-tip="${esc(statusTip(k, v as number))}">${statusIcon(k, 14)}<b>${v}</b></span>`).join(''); }
 function hpHtml(u: Unit) { const sh = u.st.shield ?? 0; return `<div class="hpbar"><i style="width:${(100 * u.hp) / u.maxHp}%"></i>${sh ? `<b style="width:${Math.min(100, (100 * sh) / u.maxHp)}%"></b>` : ''}</div><div class="hptext">${u.hp}/${u.maxHp}${sh ? ` <span style="color:#a8d8ff">+${sh}</span>` : ''}</div>`; }
 function unitFrames(u: Unit) { return u.isHero ? heroFrames(run!.heroId, run!.evo) : enemyFrames(u.edef!.id, u.phase); }
 function mountCombat() {
@@ -433,14 +514,18 @@ function updateCombat() {
   tb.innerHTML = `<span class="tl">TURN</span>` + b.preview(mobile ? 5 : 8).map((u, i) => `<div class="tb ${u.isHero ? 'hero' : ''} ${i === 0 ? 'now' : ''}" title="${esc(u.name)}"><img class="px" src="${(u.isHero ? heroFramesLo(run!.heroId, run!.evo) : unitFrames(u)).idle[0].toDataURL()}"></div>`).join('');
   const disabled = animating || !b.waiting || !!b.over;
   const acts = app.querySelector<HTMLElement>('#actions')!;
-  acts.innerHTML = `<div class="row"><div class="energy"><span class="tiny">VIBE</span> ${Array.from({ length: b.maxEnergy }, (_, i) => `<i class="${i < b.energy ? 'on' : ''}"></i>`).join('')}</div>
+  const tgtU = b.enemies[target - 1]?.alive ? b.enemies[target - 1] : b.enemiesAlive()[0] ?? b.enemies[0];
+  const dance = b.calc(b.hero, tgtU, 1, b.hero.el); const guardGain = 3 + b.hero.def;
+  const danceTip = `DANCE (basic attack): deal ${dance.n} damage to ${tgtU.name} (100% ATK${dance.em !== 1 ? ` x${dance.em} genre` : ''} - DEF ${tgtU.def}) and gain +1 Vibe.${run!.heroId === 'bass' ? ' Rattle: also applies Feedback.' : ''}`;
+  const defTip = `CATCH THE BEAT (defend): until your next turn every hit on you is halved (50% less damage). Also gain ${guardGain} Guard (3 + DEF) and +1 Vibe.`;
+  acts.innerHTML = `<div class="row"><button class="help-btn" data-a="help" data-tip="How combat works">?</button><div class="energy" data-tip="${esc(KW[8][1] + ' You have ' + b.energy + '/' + b.maxEnergy + '.')}"><span class="tiny">VIBE</span> ${Array.from({ length: b.maxEnergy }, (_, i) => `<i class="${i < b.energy ? 'on' : ''}"></i>`).join('')}</div>
         ${b.freeSkills ? `<span class="tiny tag">DOUBLE-TIME: NEXT SKILL FREE</span>` : ''}<span class="grow"></span><span class="tiny muted">${battleType === 'boss' ? 'DJ BOSS &middot; ' : battleType === 'elite' ? 'ELITE &middot; ' : ''}Target: ${esc(b.enemies[target - 1]?.name ?? '')}</span></div>
-      <div class="skills">${r.skills.map((s, i) => { const d = SKILL[s.id]; const cost = b.skillCost(i); const el = d.el ?? b.hero.el; return `<button class="skill r-${d.rarity}" style="--elc:${EL_COL[el]}" data-a="s${i}" ${disabled || !b.canUse(i) ? 'disabled' : ''} title="${esc(d.desc)}">
-        <span class="k">${i + 1}</span><span class="row nm2"><span class="gem"></span><b>${esc(d.name)}${s.up ? '+' : ''}</b></span><span class="tiny cost">${cost < d.cost ? 'FREE' : `${cost} VIBE`} &middot; ${GENRE[el].toUpperCase()}</span><span class="tiny">${esc(d.desc)}</span></button>`; }).join('')}</div>
-      <div class="basic"><button class="primary" data-a="atk" ${disabled ? 'disabled' : ''}>DANCE <span class="kbd">A</span></button><button data-a="def" ${disabled ? 'disabled' : ''}>CATCH THE BEAT <span class="kbd">D</span></button>${r.potions.map((p, i) => `<button class="pot" data-a="p${i}" ${disabled ? 'disabled' : ''} title="${esc(POTION[p].desc)}">${potIcon(p)} ${esc(POTION[p].name)}${POTION[p].kind === 'food' ? ' <span class="kbd">TURN</span>' : ''}</button>`).join('')}<span class="grow"></span><span class="tiny muted hide-sm">Dance / Catch the Beat: +1 Vibe. Tap an enemy to target.</span></div>
+      <div class="skills">${r.skills.map((s, i) => { const d = SKILL[s.id]; const cost = b.skillCost(i); const el = d.el ?? b.hero.el; return `<button class="skill r-${d.rarity}" style="--elc:${EL_COL[el]}" data-a="s${i}" ${disabled || !b.canUse(i) ? 'disabled' : ''} >
+        <span class="k">${i + 1}</span><span class="row nm2"><span class="gem"></span><b>${esc(d.name)}${s.up ? '+' : ''}</b></span><span class="tiny cost">${cost < d.cost ? 'FREE' : `${cost} VIBE`} &middot; ${GENRE[el].toUpperCase()}</span>${dmgLine(b, i, tgtU)}<span class="tiny">${kwHtml(d.desc)}</span></button>`; }).join('')}</div>
+      <div class="basic"><button class="primary bact" data-a="atk" ${disabled ? 'disabled' : ''} data-tip="${esc(danceTip)}"><span>DANCE <span class="kbd">A</span></span><span class="tiny sub">${dance.n} dmg &middot; +1 Vibe</span></button><button class="bact" data-a="def" ${disabled ? 'disabled' : ''} data-tip="${esc(defTip)}"><span>CATCH THE BEAT <span class="kbd">D</span></span><span class="tiny sub">-50% dmg taken &middot; +${guardGain} Guard &middot; +1 Vibe</span></button>${r.potions.map((p, i) => `<button class="pot" data-a="p${i}" ${disabled ? 'disabled' : ''} title="${esc(POTION[p].desc)}">${potIcon(p)} ${esc(POTION[p].name)}${POTION[p].kind === 'food' ? ' <span class="kbd">TURN</span>' : ''}</button>`).join('')}<span class="grow"></span><span class="tiny muted hide-sm">Tap an enemy to target. Hover / long-press anything for details.</span></div>
       <div class="log" id="log"></div>`;
   bindIn(acts, {
-    atk: () => act({ kind: 'basic', target }), def: () => act({ kind: 'defend' }),
+    atk: () => act({ kind: 'basic', target }), def: () => act({ kind: 'defend' }), help: () => helpPanel(b),
     ...Object.fromEntries(r.skills.map((_, i) => ['s' + i, () => act({ kind: 'skill', i, target })])),
     ...Object.fromEntries(r.potions.map((_, i) => ['p' + i, () => act({ kind: 'potion', i, target })])),
   });
@@ -505,8 +590,10 @@ async function playEvents() {
         else if (nextText === 'Drain') { scene!.castColor = '#b8ff3a'; scene!.burst('status', pt.x, pt.y); pendingDot = 'bleed'; }
         else scene!.burst('hit', pt.x, pt.y);
         popNum(e.uid, e.n ? `${e.n}` : '0', e.crit ? 'crit' : pendingDot ? 'dot ' + pendingDot : e.uid === 0 ? 'hurt' : 'dmg'); pendingDot = '';
-        if (e.eff === 'super') popNum(e.uid, 'GENRE CLASH!', 'txt super'); else if (e.eff === 'weak') popNum(e.uid, 'off-beat', 'txt');
-        if (e.crit) { scene!.flash = 5; shake(true); sfx.crit(); popNum(e.uid, 'CRITICAL!', 'txt critt'); } else { if (e.n) shake(false); sfx.hit(); }
+        const tags: string[] = []; if (e.crit) tags.push(`CRIT x${b.critMult}`); if (e.eff === 'super') tags.push('SUPER EFFECTIVE x1.5'); else if (e.eff === 'weak') tags.push('RESISTED x0.75');
+        if (e.def) tags.push('CAUGHT THE BEAT x0.5');
+        if (tags.length) popNum(e.uid, tags.join(' · '), 'txt breakdown' + (e.eff === 'super' || e.crit ? ' super' : ''));
+        if (e.crit) { scene!.flash = 5; shake(true); sfx.crit(); } else { if (e.n) shake(false); sfx.hit(); }
         updUnit(e.uid); await wait(d * 0.8); break;
       }
       case 'heal': { const pt = unitPt(e.uid); scene!.burst('heal', pt.x, pt.y); popNum(e.uid, `+${e.n}`, 'heal'); sfx.heal(); updUnit(e.uid); await wait(d * 0.5); break; }

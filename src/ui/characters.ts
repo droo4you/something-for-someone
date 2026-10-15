@@ -2,7 +2,7 @@
 import { Pix } from './pix';
 export interface Pose { f: number; walk?: number; evo?: number; phase?: number }
 type Draw = (p: Pix, o: Pose) => void;
-export interface SpriteDef { w: number; h: number; draw: Draw; aura?: (o: Pose) => string | null; res?: number }
+export interface SpriteDef { w: number; h: number; draw: Draw; aura?: (o: Pose) => string | null; res?: number; render?: (o: Pose, flash: boolean) => HTMLCanvasElement }
 
 const BOB = [0, 0, 1, 1];
 const SKIN = "#f6c9a0";

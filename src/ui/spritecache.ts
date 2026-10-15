@@ -2,9 +2,10 @@ import { Pix, withAura } from './pix';
 import { HERO_SPRITES, ENEMY_SPRITES, type SpriteDef, type Pose } from './characters';
 export interface Frames { idle: HTMLCanvasElement[]; walk: HTMLCanvasElement[]; flash: HTMLCanvasElement; w: number; h: number; res: number }
 const cache = new Map<string, Frames>();
+function raw(d: SpriteDef, pose: Pose, flash: boolean): HTMLCanvasElement { if (d.render) return d.render(pose, flash); const p = new Pix(d.w, d.h); d.draw(p, pose); return p.render({ flash }); }
 function build(d: SpriteDef, o: Omit<Pose, 'f'>, walk: boolean): Frames {
   const res = d.res ?? 1; const aura = d.aura?.({ f: 0, ...o }) ?? null; const pad = aura ? 6 * res : 0;
-  const mk = (pose: Pose, flash = false) => { const p = new Pix(d.w, d.h); d.draw(p, pose); const c = p.render({ flash }); return aura && !flash ? withAura(c, aura, pad) : pad ? withAura(c, 'rgba(0,0,0,0)', pad) : c; };
+  const mk = (pose: Pose, flash = false) => { const c = raw(d, pose, flash); return aura && !flash ? withAura(c, aura, pad) : pad ? withAura(c, 'rgba(0,0,0,0)', pad) : c; };
   const idle = [0, 1, 2, 3].map(f => mk({ f, ...o }));
   const walkF = walk ? [0, 1, 2, 3].map(w => mk({ f: w % 2 ? 2 : 0, walk: w, ...o })) : idle;
   const fl = mk({ f: 0, ...o }, true);
@@ -30,7 +31,7 @@ export function heroFramesLo(id: string, evo = 0): Frames {
   if (hi.res === 1) return hi;
   // aura is re-applied at low res so its dither stays crisp
   const d = HERO_SPRITES[id]; const aura = d.aura?.({ f: 0, evo }) ?? null; const pad = aura ? 6 : 0;
-  const mk = (pose: Pose, flash = false) => { const p = new Pix(d.w, d.h); d.draw(p, pose); const c = half(p.render({ flash })); return aura && !flash ? withAura(c, aura, pad) : pad ? withAura(c, 'rgba(0,0,0,0)', pad) : c; };
+  const mk = (pose: Pose, flash = false) => { const c = half(raw(d, pose, flash)); return aura && !flash ? withAura(c, aura, pad) : pad ? withAura(c, 'rgba(0,0,0,0)', pad) : c; };
   const idle = [0, 1, 2, 3].map(fr => mk({ f: fr, evo })); const walk = [0, 1, 2, 3].map(w => mk({ f: w % 2 ? 2 : 0, walk: w, evo }));
   f = { idle, walk, flash: mk({ f: 0, evo }, true), w: d.w / 2 + pad * 2, h: d.h / 2 + pad * 2, res: 1 }; cache.set(k, f); return f;
 }
@@ -40,7 +41,7 @@ export function cssScale(fr: Frames, scale: number): number {
   if (fr.res === 1) return scale;
   const ideal = scale / fr.res; const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
   if (Math.abs(ideal * dpr - Math.round(ideal * dpr)) < 1e-6) return ideal;
-  return Math.max(1, Math.round(ideal));
+  return Math.max(1, Math.floor(ideal));
 }
 export function enemyFrames(id: string, phase = 1): Frames { const k = `e|${id}|${phase}`; let f = cache.get(k); if (!f) { f = build(ENEMY_SPRITES[id] ?? ENEMY_SPRITES.glitter_gloop, { phase }, false); cache.set(k, f); } return f; }
 /** Static canvas (first idle frame), CSS-scaled by an integer factor. */

@@ -1,0 +1,26 @@
+import { chromium } from 'playwright';
+const url = process.argv[2] ?? 'http://localhost:4173/';
+const b = await chromium.launch(); const errs = [];
+const p = await b.newPage({ viewport: { width: 1100, height: 820 } }); p.on('pageerror', e => errs.push(String(e))); p.on('console', m => m.type() === 'error' && errs.push(m.text()));
+await p.goto(url); await p.waitForTimeout(600);
+await p.click('text=ENTER THE FESTIVAL'); await p.click("text=LET'S GO"); await p.click('text=KEEP DANCING'); await p.click('.node.avail'); await p.waitForTimeout(1500);
+await p.hover('.intent'); await p.waitForTimeout(250); await p.screenshot({ path: 'shots/15-combat-tooltip.png' });
+await p.hover('.skill .kw'); await p.waitForTimeout(250); await p.screenshot({ path: 'shots/16-keyword-tooltip.png' });
+await p.click('.help-btn'); await p.waitForTimeout(250); await p.screenshot({ path: 'shots/17-help-panel.png', fullPage: true });
+await p.click('.help [data-x]'); await p.mouse.move(5, 5);
+await p.click('button[data-a="atk"]'); await p.waitForTimeout(250); await p.screenshot({ path: 'shots/18-hit-breakdown.png' });
+await p.waitForTimeout(2500); await p.screenshot({ path: 'shots/05-combat.png' });
+// mobile long-press
+const m = await b.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 }); m.on('pageerror', e => errs.push(String(e)));
+await m.goto(url); await m.waitForTimeout(500); await m.tap('text=ENTER THE FESTIVAL'); await m.tap("text=LET'S GO"); await m.tap('text=KEEP DANCING'); await m.tap('.node.avail'); await m.waitForTimeout(1500);
+await m.locator('button[data-a="def"]').scrollIntoViewIfNeeded(); const box = await m.locator('button[data-a="def"]').boundingBox();
+await m.touchscreen.tap(1,1);
+const cdp = await m.context().newCDPSession(m);
+const x = box.x + box.width / 2, y = box.y + box.height / 2;
+await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] }); await m.waitForTimeout(600);
+await m.screenshot({ path: 'shots/19-mobile-longpress-tip.png' });
+await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await m.waitForTimeout(300);
+const tipShown = await m.evaluate(() => getComputedStyle(document.querySelector('.tip')).display);
+const acted = await m.evaluate(() => window.__sfs.battle.turns);
+console.log(JSON.stringify({ errs, tipShown, heroTurnsAfterLongPress: acted }));
+await b.close();

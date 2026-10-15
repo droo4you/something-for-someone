@@ -11,7 +11,7 @@ export interface Unit {
   st: Partial<Record<StatusKey, number>>; isHero: boolean; edef?: EnemyDef; intent?: Move; lastMove?: string; phase: number; defending?: boolean; alive: boolean;
 }
 export type BEvent =
-  | { k: 'dmg'; uid: number; n: number; hp: number; crit?: boolean; eff?: 'super' | 'weak'; src?: number }
+  | { k: 'dmg'; uid: number; n: number; hp: number; crit?: boolean; eff?: 'super' | 'weak'; src?: number; def?: boolean }
   | { k: 'heal'; uid: number; n: number; hp: number }
   | { k: 'status'; uid: number; key: StatusKey; n: number }
   | { k: 'act'; uid: number; name: string }
@@ -76,6 +76,8 @@ export class Battle {
       if (this.round === 14) this.emit({ k: 'text', uid: this.enemiesAlive()[0]?.uid ?? 1, s: 'Crowd is restless!' });
     }
     this.order = [this.hero, ...this.enemiesAlive()].sort((a, b) => this.effSpd(b) - this.effSpd(a) || (a.isHero ? -1 : 1));
+    // Opening beat: the player always gets the first move of a fight; SPD order applies from round 2.
+    if (this.round === 1) this.order = [this.hero, ...this.order.filter(u => !u.isHero)];
     const glitcher = this.enemiesAlive().find(e => e.edef?.gimmick === 'glitch');
     if (glitcher && this.round % 2 === 0) { this.order = this.rng.shuffle(this.order); this.emit({ k: 'text', uid: glitcher.uid, s: 'TURN ORDER GLITCHED' }); }
     this.idx = 0;
@@ -167,14 +169,37 @@ export class Battle {
       u.intent = undefined; if (u.alive) this.chooseIntent(u);
     }
   }
+  /** One formula for everything: (ATK x power + flat) x Hype 1.3 / Tired 0.75 x genre 1.5 / 0.75 [x crit] - target DEF, min 1. */
+  calcBase(att: Unit, tgt: Unit, mult: number, el: Element, flat = 0) {
+    let base = this.atkOf(att) * mult + flat;
+    if (att.st.strength) base *= 1.3;
+    if (att.st.weak) base *= 0.75;
+    const em = elMult(el, tgt.el); base *= em;
+    return { base, em };
+  }
+  atkOf(u: Unit) { return u.atk * (u.isHero ? 1 + this.atkPct : 1); }
+  /** Expected (non-crit) damage of one hit, as shown in the UI. */
+  calc(att: Unit, tgt: Unit, mult: number, el: Element, flat = 0) {
+    const { base, em } = this.calcBase(att, tgt, mult, el, flat);
+    let n = Math.max(1, Math.round(base - tgt.def)); if (tgt.defending) n = Math.ceil(n / 2);
+    return { n, em };
+  }
+  /** Live per-skill damage preview against a target. */
+  skillPreview(i: number, tgt: Unit) {
+    const own = this.run.skills[i]; if (!own) return [];
+    const sd = SKILL[own.id]; const up = own.up ? 1.3 : 1; const el = sd.el ?? this.hero.el;
+    return sd.fx.filter(f => f.t === 'dmg').map(f => {
+      const ff = f as Extract<Effect, { t: 'dmg' }>;
+      const flat = (ff.perBurn ? (tgt.st.burn ?? 0) * ff.perBurn : 0) + (ff.perShield ? (this.hero.st.shield ?? 0) * ff.perShield : 0);
+      const r = this.calc(this.hero, tgt, ff.mult * up, ff.el ?? el, flat);
+      return { n: r.n, em: r.em, hits: ff.hits ?? 1, aoe: !!ff.aoe, pct: Math.round(ff.mult * up * 100), flat: Math.round(flat), el: ff.el ?? el };
+    });
+  }
   /** Returns damage dealt after shield. */
   strike(att: Unit, tgt: Unit, mult: number, el: Element, critBonus = 0, flat = 0): number {
     if (!tgt.alive) return 0;
     if (att.isHero && tgt.edef?.gimmick === 'double' && this.rng.chance(tgt.phase === 2 ? 0.3 : 0.2)) { this.emit({ k: 'text', uid: tgt.uid, s: 'Hit the reflection!' }); this.emit({ k: 'dmg', uid: tgt.uid, n: 0, hp: tgt.hp, src: att.uid }); return 0; }
-    let base = att.atk * (att.isHero ? 1 + this.atkPct : 1) * mult + flat;
-    if (att.st.strength) base *= 1.3;
-    if (att.st.weak) base *= 0.75;
-    const em = elMult(el, tgt.el); base *= em;
+    let { base, em } = this.calcBase(att, tgt, mult, el, flat);
     let crit = false;
     if (att.isHero) { const c = this.crit + critBonus + (this.run.heroId === 'tempo' && this.run.evo >= 1 ? 0.1 : 0); if (this.rng.chance(c)) { crit = true; base *= this.critMult; } }
     let dmg = Math.max(1, Math.round(base - tgt.def));
@@ -182,7 +207,7 @@ export class Battle {
     let sh = tgt.st.shield ?? 0; const absorbed = Math.min(sh, dmg); sh -= absorbed; tgt.st.shield = sh || undefined;
     const real = dmg - absorbed;
     tgt.hp = Math.max(0, tgt.hp - real);
-    this.emit({ k: 'dmg', uid: tgt.uid, n: real, hp: tgt.hp, crit, eff: em > 1 ? 'super' : em < 1 ? 'weak' : undefined, src: att.uid });
+    this.emit({ k: 'dmg', uid: tgt.uid, n: real, hp: tgt.hp, crit, eff: em > 1 ? 'super' : em < 1 ? 'weak' : undefined, src: att.uid, def: !!tgt.defending });
     if (absorbed && !real) this.emit({ k: 'text', uid: tgt.uid, s: 'Guarded' });
     if (!att.isHero && tgt.isHero && tgt.st.thorns) { this.rawDamage(att, tgt.st.thorns * 2 + relicMod(this.run, 'thorns'), 'Spikes'); }
     this.afterHit(tgt);
@@ -279,8 +304,7 @@ export class Battle {
   }
   intentDamage(u: Unit): number {
     const m = u.intent; if (!m || m.k !== 'atk') return 0;
-    let base = u.atk * m.mult; if (u.st.strength) base *= 1.3; if (u.st.weak) base *= 0.75; base *= elMult(u.el, this.hero.el);
-    return Math.max(1, Math.round(base - this.hero.def));
+    return this.calc(u, { ...this.hero, defending: false }, m.mult, u.el).n;
   }
   enemyAct(u: Unit) {
     const m = u.intent ?? this.movePool(u)[0];

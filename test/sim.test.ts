@@ -8,6 +8,8 @@ import { POTIONS } from '../src/data/potions';
 import { ENEMIES } from '../src/data/enemies';
 import { EVENTS } from '../src/data/events';
 import { LORE } from '../src/data/lore';
+import { Battle } from '../src/engine/battle';
+import { newRun } from '../src/engine/run';
 
 const N = Number(process.env.SIM_RUNS ?? 60);
 function stats(ai: 'novice' | 'good') {
@@ -54,6 +56,17 @@ describe('headless simulation', () => {
     const s = stats('good');
     expect(s.avg).toBeGreaterThan(2);
     expect(s.further).toBeGreaterThan(0.02);
+  });
+  it('player always acts first, even against faster enemies; damage previews match real hits', () => {
+    const run = newRun('wall', 'FIRST', defaultMeta());
+    const fast = { ...ENEMIES.find(e => e.tier === 'normal')!, spd: 99 };
+    const b = new Battle(run, [fast, fast], 0, 7); b.start();
+    expect(b.waiting).toBe(true); expect(b.round).toBe(1);
+    expect(b.hero.hp).toBe(run.hp); // nobody hit us before our first choice
+    const before = b.enemies[0].hp; const exp = b.calc(b.hero, b.enemies[0], 1, b.hero.el).n; b.crit = 0;
+    b.heroAct({ kind: 'basic', target: 1 });
+    const dealt = before - b.enemies[0].hp; expect(dealt).toBe(exp);
+    expect(b.order[0].isHero).toBe(false); // round 2+ (or rest of round 1) back to SPD order
   });
   it('seeded runs are deterministic', () => {
     const a = simulate('bass', 'DETERMINISM', 'good', defaultMeta());
