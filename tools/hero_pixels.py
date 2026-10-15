@@ -6,6 +6,7 @@
               sel-out outline (darker tone of own ramp, broken on the lit top-left side), scripted face/FX edits
   5 layers    shared 136x160 canvas, one foot pivot; evo add-ons outside the base silhouette -> overlay layer
   6 indexed   each layer = index map (base64, 1 byte/px, 0 = transparent) + per-evo palette LUT
+  7 evos      tools/hero_evos.py: per-evo palette swaps + scripted overlays so every stage reads distinct
 Run: python tools/hero_pixels.py refs/target-heroes.jpg   (needs: pip install unfake opencv-python-headless scipy pillow)
 """
 import sys, os, json, base64, subprocess, tempfile, numpy as np, cv2
@@ -18,7 +19,7 @@ HW, HH, GY = 136, 160, 154      # canvas + foot baseline (shared pivot)
 SCALE = 0.30                     # source px -> sprite px (target ~128 tall)
 K = 15
 IDS = ['bass', 'flow', 'tempo', 'wall']
-OUT = 'src/ui/heromaps.json'; WORK = os.environ.get('PXWORK', '/tmp/pxwork')
+OUT = 'tools/heromaps_base.json'  # raw pipeline output; tools/hero_evos.py adds evo overlays -> src/ui/heromaps.json; WORK = os.environ.get('PXWORK', '/tmp/pxwork')
 
 def srgb2lin(c): c = c / 255.0; return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
 def lin2srgb(c): c = np.clip(c, 0, 1); return np.clip(np.where(c <= 0.0031308, c * 12.92, 1.055 * c ** (1 / 2.4) - 0.055) * 255, 0, 255)
@@ -144,6 +145,7 @@ def main(src):
         data['heroes'][hid] = out
     json.dump(data, open(OUT, 'w'))
     print('wrote', OUT, os.path.getsize(OUT), 'bytes')
+    import hero_evos; hero_evos.main()
 
 def rle(a):
     """Run-length (count<=255, index) byte pairs, base64."""
