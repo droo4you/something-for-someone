@@ -1,0 +1,5 @@
+unfake
+opencv-python-headless
+scipy
+pillow
+numpy
