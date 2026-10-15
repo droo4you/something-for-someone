@@ -1,6 +1,6 @@
 import { Pix, withAura } from './pix';
 import { HERO_SPRITES, ENEMY_SPRITES, type SpriteDef, type Pose } from './characters';
-export interface Frames { idle: HTMLCanvasElement[]; walk: HTMLCanvasElement[]; flash: HTMLCanvasElement; w: number; h: number; res: number }
+export interface Frames { idle: HTMLCanvasElement[]; walk: HTMLCanvasElement[]; flash: HTMLCanvasElement; w: number; h: number; res: number; shout?: HTMLCanvasElement; hurt?: HTMLCanvasElement }
 const cache = new Map<string, Frames>();
 function raw(d: SpriteDef, pose: Pose, flash: boolean): HTMLCanvasElement { if (d.render) return d.render(pose, flash); const p = new Pix(d.w, d.h); d.draw(p, pose); return p.render({ flash }); }
 function build(d: SpriteDef, o: Omit<Pose, 'f'>, walk: boolean): Frames {
@@ -9,7 +9,8 @@ function build(d: SpriteDef, o: Omit<Pose, 'f'>, walk: boolean): Frames {
   const idle = [0, 1, 2, 3].map(f => mk({ f, ...o }));
   const walkF = walk ? [0, 1, 2, 3].map(w => mk({ f: w % 2 ? 2 : 0, walk: w, ...o })) : idle;
   const fl = mk({ f: 0, ...o }, true);
-  return { idle, walk: walkF, flash: fl, w: d.w + pad * 2, h: d.h + pad * 2, res };
+  const ex = d.render ? { shout: mk({ f: 0, ...o, expr: 'shout' }), hurt: mk({ f: 2, ...o, expr: 'hurt' }) } : {};
+  return { idle, walk: walkF, flash: fl, w: d.w + pad * 2, h: d.h + pad * 2, res, ...ex };
 }
 export function heroFrames(id: string, evo = 0): Frames { const k = `h|${id}|${evo}`; let f = cache.get(k); if (!f) { f = build(HERO_SPRITES[id], { evo }, true); cache.set(k, f); } return f; }
 /** Half-resolution copy of the hero art for tiny spots (map marker, scene walker, turn bar). Majority-vote 2x2 downsample, darkest wins ties so outlines survive. */

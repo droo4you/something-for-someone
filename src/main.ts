@@ -553,7 +553,7 @@ function updUnit(uid: number) {
   const b = battle!; const u = b.unit(uid); const el = app.querySelector(`#u${uid}`); if (!el || !u) return;
   el.querySelector('.sts')!.innerHTML = statusHtml(u); el.querySelector('.hp')!.innerHTML = hpHtml(u);
 }
-function lunge(uid: number) { const el = app.querySelector(`#u${uid} .spr`); if (!el) return; const c = uid === 0 ? 'lunge-r' : 'lunge-l'; el.classList.remove(c); void (el as HTMLElement).offsetWidth; el.classList.add(c); }
+function lunge(uid: number) { if (uid === 0) sprites.get(0)?.express('shout', 420); const el = app.querySelector(`#u${uid} .spr`); if (!el) return; const c = uid === 0 ? 'lunge-r' : 'lunge-l'; el.classList.remove(c); void (el as HTMLElement).offsetWidth; el.classList.add(c); }
 function shake(big = false) { const a = app.querySelector('#arena'); if (!a) return; const c = big ? 'shake-big' : 'shake'; a.classList.remove('shake', 'shake-big'); void (a as HTMLElement).offsetWidth; a.classList.add(c); }
 function moveKind(u: Unit, name: string) { const m = [...(u.edef?.moves ?? []), ...(u.edef?.phase2 ?? [])].find(x => x.name === name); return m?.k ?? 'atk'; }
 async function playEvents() {
@@ -573,6 +573,7 @@ async function playEvents() {
           const a = lastHeroAct; let el: El = b.hero.el; let hasDmg = a?.kind === 'basic';
           if (a?.kind === 'skill') { const sd = SKILL[run!.skills[a.i]?.id]; if (sd) { el = sd.el ?? b.hero.el; hasDmg = sd.fx.some(f => f.t === 'dmg'); } }
           lastSrcEl = el;
+          if (a?.kind === 'skill') sprites.get(0)?.express('shout', 480);
           if (a?.kind === 'skill' || a?.kind === 'potion') { scene!.castColor = EL_COL[el]; scene!.burst('cast', pt.x, pt.y); sfx.shield(); }
           if (hasDmg) lunge(0);
           lastHeroAct = a?.kind === 'potion' ? null : a;
@@ -583,7 +584,7 @@ async function playEvents() {
         await wait(d * 0.9); break;
       }
       case 'dmg': {
-        const pt = unitPt(e.uid); sprites.get(e.uid)?.flash();
+        const pt = unitPt(e.uid); sprites.get(e.uid)?.flash(); if (e.uid === 0 && e.n > 0) setTimeout(() => sprites.get(0)?.express('hurt', 520), 120);
         const nextText = evs[i + 1]?.k === 'text' ? (evs[i + 1] as any).s : '';
         if (e.src !== undefined) { const el = e.src === 0 ? lastSrcEl : b.unit(e.src).el; scene!.burst(el === 'none' ? 'hit' : el, pt.x, pt.y); scene!.burst('hit', pt.x, pt.y); }
         else if (nextText === 'Feedback') { scene!.burst('fire', pt.x, pt.y, 8); pendingDot = 'burn'; }

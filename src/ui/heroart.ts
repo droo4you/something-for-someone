@@ -1,277 +1,296 @@
-// Hi-res volumetric heroes (128x136 art px). Metal Slug-leaning chibi proportions: ~1/3 head, bent-knee
-// stance, chunky gear. Built from lit shapes on the Vol renderer (see vol.ts), so every material gets
-// a 10-tone ramp, specular per material kind, cloth folds, a coloured rim light and selective outlines.
+// Hi-res volumetric heroes (136x144 art px), modelled on refs/target-heroes.jpg. Each hero has its
+// own rig/pose; heads are big and round (about 1/3 of height) with soft jaws, ears and large eyes.
+// Expression frames: neutral, 'shout' (attack/cast) and 'hurt'. Rendered by the Vol renderer.
 import { Vol } from './vol';
 import type { Pose, SpriteDef } from './characters';
-export const HW = 128, HH = 136;
+export const HW = 136, HH = 160;
 type P = [number, number];
-interface Sk { b: number; hb: number; sway: number; head: P; neck: P; shB: P; shF: P; hipB: P; hipF: P; kneeB: P; kneeF: P; ankB: P; ankF: P; waist: number; chestY: number }
-function skel(o: Pose): Sk {
-  const f = o.f % 4; const b = [0, 1, 2, 1][f]; const hb = [0, 0, 1, 1][f]; const sway = [0, 1, 2, 1][f];
-  const w = o.walk ?? -1; const st = w < 0 ? 0 : [0, 1, 0, -1][w];
-  const kneeLift = (s: number) => (s > 0 ? -3 : 0);
-  return {
-    b, hb, sway,
-    head: [64, 34 + b + hb], neck: [62, 52 + b], shB: [48, 58 + b], shF: [75, 58 + b], chestY: 66 + b, waist: 86 + b,
-    hipB: [55, 89 + b], hipF: [69, 89 + b],
-    kneeB: [51 - st * 6, 105 + Math.round(b / 2) + kneeLift(-st)], kneeF: [74 + st * 6, 104 + Math.round(b / 2) + kneeLift(st)],
-    ankB: [48 - st * 9, 121 + (st < 0 ? -3 : 0)], ankF: [76 + st * 9, 121 + (st > 0 ? -3 : 0)],
-  };
-}
-interface Face { iris: string; brow: 'fierce' | 'soft' | 'up' | 'stern'; mouth: 'grin' | 'smile' | 'open' | 'smirk'; hideEyes?: boolean; skin: string }
-const INK = '#1a0e24';
-function head(v: Vol, s: Sk, f: Face, blink: boolean) {
-  const S = v.mat(f.skin, 'skin'); const [hx, hy] = s.head;
+const INK = '#160c20';
+type Expr = 'neutral' | 'shout' | 'hurt';
+interface FaceCfg { skin: string; iris: string; brow: 'fierce' | 'calm' | 'excited' | 'stern'; mouth: 'smirk' | 'pout' | 'oh' | 'flat'; hideEyes?: boolean; blush?: boolean }
+const dk = (h: string, k = 0.55) => { const n = parseInt(h.slice(1), 16); const f = (x: number) => Math.round(x * k).toString(16).padStart(2, '0'); return '#' + f((n >> 16) & 255) + f((n >> 8) & 255) + f(n & 255); };
+const lt = (h: string, k = 0.45) => { const n = parseInt(h.slice(1), 16); const f = (x: number) => Math.round(x + (255 - x) * k).toString(16).padStart(2, '0'); return '#' + f((n >> 16) & 255) + f((n >> 8) & 255) + f(n & 255); };
+function exprOf(o: Pose): Expr { return (o as any).expr ?? 'neutral'; }
+
+/** Round cranium + soft jaw + ear + neck. Returns nothing; face drawn by face(). */
+function headShape(v: Vol, cx: number, cy: number, skin: string) {
+  const S = v.mat(skin, 'skin');
   v.part(() => {
-    v.cap(s.neck[0], s.neck[1] - 6, s.neck[0], s.neck[1] + 2, 5, 6, S);
-    v.ell(hx, hy, 20, 20, S, [-0.05, 0]);
-    v.ell(hx + 5, hy + 9, 12, 8, S); // jaw / cheek pushed toward the viewer side
-    v.ell(hx - 15, hy + 3, 4, 5, S, [-0.3, 0]); // ear
-    v.ell(hx + 15, hy + 5, 2.5, 2.5, S, [0.4, 0]); // nose
+    v.cap(cx - 1, cy + 16, cx - 1, cy + 24, 5.5, 6, S); // neck
+    v.ell(cx, cy, 22, 21, S, [-0.05, -0.05]);          // cranium
+    v.ell(cx + 3, cy + 9, 16, 12, S, [0.05, 0.1]);      // cheeks + soft jaw
+    v.ell(cx + 6, cy + 16, 8, 5, S, [0.1, 0.3]);        // chin
+    v.ell(cx - 18, cy + 4, 4, 6, S, [-0.4, 0]);         // ear
+    v.ell(cx + 16, cy + 6, 2.5, 2.5, S, [0.5, 0.1]);    // nose bump
   });
-  v.dot(hx - 15, hy + 3, '#c47a6a'); v.dot(hx - 14, hy + 4, '#c47a6a');
-  const ex = hx - 1, ey = hy - 2;
-  if (!f.hideEyes) for (const [x, w] of [[ex, 7], [ex + 11, 5]] as [number, number][]) {
-    if (blink) { v.drect(x - 1, ey + 4, w + 2, 1, INK); continue; }
-    v.drect(x, ey + 1, w, 8, '#ffffff'); v.drect(x + (w > 4 ? 2 : 1), ey + 2, w > 4 ? 4 : 3, 6, f.iris); v.drect(x + (w > 4 ? 2 : 1), ey + 2, w > 4 ? 4 : 3, 2, mixDark(f.iris)); v.drect(x + (w > 4 ? 3 : 2), ey + 3, 2, 3, INK);
-    v.dot(x + (w > 4 ? 2 : 1), ey + 3, '#ffffff'); v.dot(x + w - 1, ey + 6, '#e8f8ff');
-    v.drect(x - 1, ey, w + 2, 1, INK); v.dot(x - 1, ey + 1, INK); v.dot(x + w, ey - 1, INK); v.drect(x, ey + 8, w, 1, mixDark(f.skin));
+  v.dot(cx - 18, cy + 3, dk(skin, 0.72)); v.dot(cx - 18, cy + 4, dk(skin, 0.72)); v.dot(cx - 17, cy + 5, dk(skin, 0.8));
+}
+function eye(v: Vol, x: number, y: number, w: number, h: number, iris: string, ex: Expr, near: boolean) {
+  if (ex === 'hurt') { // squeezed shut: > <
+    const c = INK; if (near) { v.dline(x, y + 2, x + w - 1, y + h / 2, c); v.dline(x, y + h - 2, x + w - 1, y + h / 2, c); } else { v.dline(x + w - 1, y + 2, x, y + h / 2, c); v.dline(x + w - 1, y + h - 2, x, y + h / 2, c); }
+    return;
   }
-  const B = INK; const by = ey - 3;
-  if (f.brow === 'fierce') { v.dline(ex - 1, by - 1, ex + 6, by + 2, B); v.dline(ex - 1, by, ex + 5, by + 2, B); v.dline(ex + 9, by + 2, ex + 14, by, B); }
-  else if (f.brow === 'soft') { v.dline(ex, by + 1, ex + 6, by, B); v.dline(ex + 10, by, ex + 14, by + 1, B); }
-  else if (f.brow === 'up') { v.dline(ex, by, ex + 6, by - 2, B); v.dline(ex, by + 1, ex + 6, by - 1, B); v.dline(ex + 10, by - 2, ex + 14, by - 1, B); }
-  else { v.dline(ex - 2, by, ex + 6, by + 2, B); v.dline(ex - 2, by + 1, ex + 6, by + 3, B); v.dline(ex + 9, by + 3, ex + 15, by, B); }
-  const my = hy + 12, mx = hx + 6;
-  const BL = '#f07a8a'; v.dot(ex - 2, hy + 8, BL); v.dot(ex, hy + 8, BL); v.dot(ex - 1, hy + 9, BL); v.dot(ex + 12, hy + 8, BL);
-  if (f.mouth === 'grin') { v.drect(mx, my, 8, 3, '#5a1a2e'); v.drect(mx, my, 8, 1, '#ffffff'); v.dot(mx + 6, my + 1, '#ffffff'); v.drect(mx + 1, my + 2, 5, 1, '#d8506a'); v.dot(mx - 1, my - 1, INK); v.dot(mx + 8, my - 1, INK); }
-  else if (f.mouth === 'smile') { v.dline(mx, my, mx + 2, my + 1, INK); v.dline(mx + 2, my + 1, mx + 6, my + 1, INK); v.dot(mx + 7, my, INK); }
-  else if (f.mouth === 'open') { v.drect(mx + 1, my - 1, 6, 4, '#5a1a2e'); v.drect(mx + 1, my - 1, 6, 1, '#ffffff'); v.drect(mx + 2, my + 2, 4, 1, '#e0607a'); }
-  else { v.dline(mx, my + 1, mx + 5, my + 1, INK); v.dot(mx + 6, my, INK); v.dot(mx + 7, my - 1, INK); }
+  const top = ex === 'shout' ? 3 : 0; // fierce lid cuts the top
+  v.drect(x, y + top, w, h - top, '#ffffff');
+  const ix = x + Math.floor(w * 0.3), iw = w - Math.floor(w * 0.3);
+  v.drect(ix, y + top, iw, h - top, iris); v.drect(ix, y + top, iw, 2, dk(iris, 0.45)); v.drect(ix, y + h - 3, iw, 2, lt(iris, 0.35));
+  v.drect(ix + Math.floor(iw / 2) - 1, y + top + 2, 3, Math.max(2, h - top - 5), INK); // pupil
+  v.drect(ix, y + top + 1, 2, 2, '#ffffff'); v.dot(ix + iw - 1, y + h - 2, '#ffffff'); // highlights
+  // lashes: thick upper lid, flick at the outer corner, thin lower lid
+  if (ex === 'shout') v.dline(x - 1, y + (near ? 1 : 3), x + w, y + (near ? 3 : 1), INK); else v.drect(x - 1, y - 1, w + 2, 2, INK);
+  v.dot(near ? x - 2 : x + w + 1, y - 2, INK); v.dot(near ? x - 1 : x + w, y - 2, INK);
+  v.drect(x, y + h, w, 1, '#9a5a5a');
 }
-function mixDark(h: string) { const n = parseInt(h.slice(1), 16); const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255; const k = (x: number) => Math.round(x * 0.55).toString(16).padStart(2, '0'); return '#' + k(r) + k(g) + k(b); }
-/** Leg: thigh + shin capsules, knee fold, then a shoe. */
-function leg(v: Vol, hip: P, knee: P, ank: P, pants: number, shoe: (x: number, y: number) => void, r = 7) {
-  v.part(() => { v.cap(hip[0], hip[1], knee[0], knee[1], r, r - 1, pants); v.cap(knee[0], knee[1], ank[0], ank[1] - 2, r - 1, r - 2, pants); });
-  v.fold(knee[0] - 5, knee[1] - 2, knee[0], knee[1] + 2, knee[0] + 5, knee[1] - 1, 1, 0.8);
-  v.fold(ank[0] - 4, ank[1] - 8, ank[0], ank[1] - 6, ank[0] + 4, ank[1] - 8, 1, 0.6);
-  shoe(ank[0], ank[1]);
+function face(v: Vol, cx: number, cy: number, f: FaceCfg, ex: Expr) {
+  const ny = cy - 1; const nx = cx - 3, fx = cx + 10;
+  if (!f.hideEyes) { eye(v, nx, ny, 8, 10, f.iris, ex, true); eye(v, fx, ny, 6, 10, f.iris, ex, false); }
+  // brows
+  const by = ny - 4; const B = INK;
+  const brow = ex === 'shout' ? 'fierce' : ex === 'hurt' ? 'worry' : f.brow;
+  const L = (x0: number, y0: number, x1: number, y1: number) => { v.dline(x0, y0, x1, y1, B); v.dline(x0, y0 + 1, x1, y1 + 1, B); };
+  if (brow === 'fierce') { L(nx - 1, by - 1, nx + 8, by + 2); L(fx, by + 2, fx + 6, by - 1); }
+  else if (brow === 'calm') { L(nx, by + 1, nx + 7, by); v.dline(fx, by, fx + 5, by + 1, B); }
+  else if (brow === 'excited') { L(nx, by, nx + 7, by - 2); L(fx, by - 2, fx + 5, by - 1); }
+  else if (brow === 'stern') { L(nx - 2, by, nx + 8, by + 2); L(fx - 1, by + 2, fx + 7, by - 1); }
+  else { L(nx, by + 2, nx + 7, by - 1); L(fx, by - 1, fx + 5, by + 2); } // worry
+  // nose shadow + blush
+  v.dot(cx + 15, cy + 9, dk(f.skin, 0.7)); v.dot(cx + 14, cy + 10, dk(f.skin, 0.72)); v.dot(cx + 15, cy + 10, dk(f.skin, 0.65));
+  if (f.blush !== false) { const P = '#f2869a'; for (const [x, y] of [[nx, cy + 11], [nx + 2, cy + 11], [nx + 1, cy + 12], [fx + 2, cy + 11], [fx + 4, cy + 11]]) v.dot(x, y, P); }
+  // mouth
+  const mx = cx + 6, my = cy + 15; const R = '#5a1626', T = '#ffffff', TG = '#d84a66';
+  const m = ex === 'shout' ? 'shout' : ex === 'hurt' ? 'grit' : f.mouth;
+  if (m === 'shout') { v.drect(mx, my - 2, 8, 6, R); v.drect(mx, my - 2, 8, 1, T); v.drect(mx + 2, my + 2, 5, 2, TG); v.dot(mx - 1, my - 2, INK); v.dot(mx + 8, my - 2, INK); }
+  else if (m === 'grit') { v.drect(mx, my, 8, 3, T); v.drect(mx - 1, my - 1, 10, 1, INK); v.drect(mx - 1, my + 3, 10, 1, INK); v.dot(mx + 3, my + 1, '#c8c8d8'); v.dot(mx + 5, my + 1, '#c8c8d8'); v.dot(cx - 14, cy - 6, '#bfe8ff'); v.dot(cx - 14, cy - 5, '#7ac8f0'); v.dot(cx - 15, cy - 5, '#bfe8ff'); }
+  else if (m === 'smirk') { v.drect(mx, my, 7, 3, R); v.drect(mx, my, 7, 1, T); v.dot(mx + 5, my + 1, T); v.drect(mx + 1, my + 2, 4, 1, TG); v.dot(mx - 1, my - 1, INK); v.dot(mx + 7, my - 1, INK); }
+  else if (m === 'pout') { v.dline(mx + 1, my + 1, mx + 5, my + 1, INK); v.dot(mx + 2, my + 2, '#c86a7a'); v.dot(mx + 3, my + 2, '#c86a7a'); }
+  else if (m === 'oh') { v.drect(mx + 1, my - 1, 5, 5, R); v.drect(mx + 2, my + 2, 3, 1, TG); v.dot(mx + 1, my - 1, INK); v.dot(mx + 5, my - 1, INK); v.dot(mx + 1, my + 3, INK); v.dot(mx + 5, my + 3, INK); }
+  else { v.dline(mx, my + 1, mx + 6, my + 1, INK); v.dot(mx + 7, my, INK); }
 }
-function sneaker(v: Vol, x: number, y: number, up: number, sole: number, accent?: string, high = false) {
-  v.part(() => { v.poly([[x - 7, y - (high ? 8 : 4)], [x + 3, y - (high ? 8 : 4)], [x + 8, y - 1], [x + 14, y + 1], [x + 15, y + 6], [x - 8, y + 6]], up, 4); });
-  v.poly([[x - 9, y + 5], [x + 16, y + 5], [x + 16, y + 9], [x - 9, y + 9]], sole, 2);
-  if (accent) { v.dline(x - 4, y + 1, x + 6, y + 3, accent); v.dline(x - 4, y + 2, x + 5, y + 4, accent); }
-  v.dot(x + 1, y - 2, '#ffffff'); v.dot(x + 3, y - 1, '#ffffff');
+/** Limb: two tapered capsules with a crease at the joint. */
+function limb(v: Vol, a: P, j: P, c: P, r0: number, r1: number, m: number) {
+  v.part(() => { v.cap(a[0], a[1], j[0], j[1], r0, (r0 + r1) / 2, m); v.cap(j[0], j[1], c[0], c[1], (r0 + r1) / 2, r1, m); });
+  v.fold(j[0] - 4, j[1] - 3, j[0], j[1] + 1, j[0] + 4, j[1] - 3, 1, 0.6);
 }
-function arm(v: Vol, sh: P, el: P, hand: P, sleeve: number, skin: number, r = 6, glove?: number) {
-  v.part(() => { v.cap(sh[0], sh[1], el[0], el[1], r, r - 1, sleeve); v.cap(el[0], el[1], hand[0], hand[1], r - 1, r - 2, sleeve); });
-  v.fold(el[0] - 3, el[1] - 4, el[0], el[1], el[0] + 3, el[1] - 4, 1, 0.7);
-  v.ell(hand[0], hand[1], 4.5, 4.5, glove ?? skin);
+function hand(v: Vol, x: number, y: number, skin: string, r = 4.5) { const S = v.mat(skin, 'skin'); v.part(() => { v.ell(x, y, r, r, S); v.ell(x + r * 0.6, y - r * 0.5, r * 0.45, r * 0.45, S); }); v.dot(x - 1, y + 1, dk(skin, 0.75)); v.dot(x + 1, y + 1, dk(skin, 0.75)); }
+function hiTop(v: Vol, x: number, y: number, up: string, trim: string, sole: string, soleKind: 'rubber' | 'emit' = 'rubber') {
+  const U = v.mat(up, 'plastic'), Tm = v.mat(trim, 'plastic'), So = v.mat(sole, soleKind);
+  v.part(() => { v.poly([[x - 8, y - 12], [x + 4, y - 12], [x + 6, y - 5], [x + 15, y - 2], [x + 16, y + 4], [x - 9, y + 4]], U, 4); });
+  v.poly([[x - 2, y - 6], [x + 8, y - 4], [x + 6, y + 1], [x - 4, y + 1]], Tm, 2);
+  v.poly([[x - 10, y + 3], [x + 17, y + 3], [x + 17, y + 8], [x - 10, y + 8]], So, 2);
+  for (let i = 0; i < 3; i++) v.dline(x - 5 + i * 3, y - 10 + i * 2, x - 1 + i * 3, y - 10 + i * 2, '#ffffff');
+}
+function boot(v: Vol, x: number, y: number) {
+  const B = v.mat('#2a2234', 'plastic'), So = v.mat('#120e18', 'rubber');
+  v.part(() => { v.poly([[x - 9, y - 13], [x + 5, y - 13], [x + 7, y - 4], [x + 16, y - 2], [x + 17, y + 4], [x - 10, y + 4]], B, 4); });
+  v.poly([[x - 11, y + 3], [x + 18, y + 3], [x + 18, y + 9], [x - 11, y + 9]], So, 2);
+  for (let i = 0; i < 4; i++) { v.dline(x - 4, y - 11 + i * 3, x + 3, y - 10 + i * 3, '#8a8098'); }
+}
+function star(v: Vol, x: number, y: number, c: string) { v.dot(x, y, c); v.dot(x - 1, y, c); v.dot(x + 1, y, c); v.dot(x, y - 1, c); v.dot(x, y + 1, c); v.dot(x, y - 2, '#ffffff'); v.dot(x, y + 2, '#ffffff'); v.dot(x - 2, y, '#ffffff'); v.dot(x + 2, y, '#ffffff'); }
+function speaker(v: Vol, x: number, y: number, w: number, h: number, frame: string, ring: string, cones: number) {
+  const F = v.mat(frame, 'metal'), C = v.mat('#1e1a28', 'plastic'), S = v.mat('#100c16', 'rubber'), K = v.mat('#2e2840', 'plastic'), D = v.mat('#c8c0e0', 'metal'), R = v.mat(ring, 'emit');
+  v.poly([[x, y], [x + w, y], [x + w, y + h], [x, y + h]], F, 3, [0.12, 0]);
+  v.poly([[x + 3, y + 3], [x + w - 3, y + 3], [x + w - 3, y + h - 3], [x + 3, y + h - 3]], C, 3);
+  const cx = x + w / 2; const rr = Math.min(w, h / cones) / 2 - 4;
+  for (let i = 0; i < cones; i++) { const cy = y + (h / cones) * (i + 0.5); v.ell(cx, cy, rr + 1, rr + 1, R); v.ell(cx, cy, rr, rr, S); v.ell(cx, cy, rr * 0.72, rr * 0.72, K, [0, 0], true); v.ell(cx, cy, rr * 0.28, rr * 0.28, D); }
+  for (const [bx, by] of [[x + 2, y + 2], [x + w - 3, y + 2], [x + 2, y + h - 3], [x + w - 3, y + h - 3]]) v.dot(bx, by, '#fff2c0');
+}
+interface Rig { b: number; hb: number; sw: number; wk: number; st: number }
+function rig(o: Pose): Rig { const f = o.f % 4; const wk = o.walk ?? -1; return { b: [0, 1, 1, 0][f], hb: [0, 0, 1, 1][f], sw: [0, 1, 2, 1][f], wk, st: wk < 0 ? 0 : [0, 1, 0, -1][wk] }; }
+/** Two legs from hips to shoes; walk swings them. */
+function legs(v: Vol, r: Rig, hipB: P, hipF: P, pants: number, rad: number, shoe: (x: number, y: number) => void, gy = 150) {
+  const s = r.st;
+  const kB: P = [hipB[0] - 3 - s * 6, (hipB[1] + gy - 10) / 2 + (s < 0 ? -3 : 0)], aB: P = [hipB[0] - 7 - s * 9, gy - 10 + (s < 0 ? -3 : 0)];
+  const kF: P = [hipF[0] + 3 + s * 6, (hipF[1] + gy - 10) / 2 + (s > 0 ? -3 : 0)], aF: P = [hipF[0] + 8 + s * 9, gy - 10 + (s > 0 ? -3 : 0)];
+  limb(v, hipB, kB, aB, rad, rad - 1.5, pants); shoe(aB[0], aB[1] + 10);
+  limb(v, hipF, kF, aF, rad, rad - 1.5, pants); shoe(aF[0], aF[1] + 10);
+  return { kB, kF, aB, aF };
 }
 
-// ---------------------------------------------------------------- BASS BRAWLER
+// ============================================================ BASS BRAWLER
+const SPIKES: [number, number, number][] = [[-16, 14, -10], [-11, 22, -10], [-5, 28, -8], [1, 30, -5], [7, 27, -1], [12, 20, 3], [16, 12, 6]];
 function bass(v: Vol, o: Pose) {
-  const e = o.evo ?? 0; const s = skel(o); const blink = o.f % 4 === 3 && o.walk === undefined;
-  const pink = '#ff3ec8', cyan = '#3ae8ff';
-  const HOOD = v.mat(e >= 2 ? '#4a2470' : e >= 1 ? '#3e2a5e' : '#3a3450', 'cloth'), JOG = v.mat('#262234', 'cloth'), SK = v.mat('#f2c39a', 'skin');
-  const SHOE = v.mat(e >= 1 ? pink : '#eceaf6', 'plastic'), SOLE = v.mat('#f4f0ff', 'rubber'), HAIR = v.mat(pink, 'hair');
-  if (e >= 2) { // speaker backpack
-    const BOX = v.mat('#2e2640', 'metal'), CONE = v.mat('#3a3050', 'plastic'), SUR = v.mat('#16121e', 'rubber'), CAP = v.mat('#c8c0e0', 'metal');
-    v.poly([[18, 40 + s.b], [44, 38 + s.b], [46, 86 + s.b], [20, 88 + s.b]], BOX, 3);
-    for (const cy of [52, 74]) { v.ell(32, cy + s.b, 10, 10, SUR); v.ell(32, cy + s.b, 8, 8, CONE, [0, 0], true); v.ell(32, cy + s.b, 3, 3, CAP); }
-    const E = v.mat(pink, 'emit'); v.cap(20, 40 + s.b, 44, 38 + s.b, 1, 1, E);
-  }
-  if (e >= 1) { const CP = v.mat(e >= 2 ? '#6a1a8a' : '#4a2268', 'cloth'); const sw = s.sway; v.poly([[46, 56 + s.b], [70, 56 + s.b], [62 - sw, 112], [28 - sw * 2, 116], [34, 80]], CP, 5); v.fold(50, 64, 42, 90, 36 - sw, 112, 2); v.fold(60, 64, 56, 92, 52 - sw, 112, 2); }
-  // back arm
-  arm(v, s.shB, [40, 72 + s.b], [42, 84 + s.b], HOOD, SK, 7);
-  const shoe = (x: number, y: number) => sneaker(v, x, y, SHOE, SOLE, e >= 1 ? '#ffffff' : pink, true);
-  leg(v, s.hipB, s.kneeB, s.ankB, JOG, shoe, 8);
-  leg(v, s.hipF, s.kneeF, s.ankF, JOG, shoe, 8);
-  // torso: oversized hoodie
+  const e = o.evo ?? 0, r = rig(o), ex = exprOf(o), b = r.b;
+  const skin = '#e8b088', pink = '#ff3ec8';
+  const JK = v.mat(e >= 1 ? '#4a2a72' : '#3a3644', 'cloth'), TEE = v.mat(e >= 2 ? '#3a1e5a' : '#1e1a26', 'cloth'), PANT = v.mat('#24222c', 'cloth');
+  const cx = 62, cy = 42 + b + r.hb;
+  if (e >= 2) speaker(v, 6, 58 + b, 30, 54, '#2a2238', pink, 2); // stack behind
+  if (e >= 1) { const CP = v.mat(e >= 2 ? '#6a2496' : '#5a2486', 'cloth'); v.poly([[42, 70 + b], [64, 70 + b], [58 - r.sw, 146], [20 - r.sw * 2, 150], [28, 104]], CP, 5); for (const k of [0, 1, 2]) v.fold(44 + k * 6, 76 + b, 37 + k * 6, 110, 30 + k * 8 - r.sw, 146, 1, 0.7); }
+  // back arm: hand tucked in the jacket pocket
+  limb(v, [46, 74 + b], [41, 88 + b], [45, 100 + b], 6, 5, JK);
+  const shoe = (x: number, y: number) => hiTop(v, x, y, e >= 1 ? '#e83ab8' : '#a890e0', '#ffffff', '#f2eeff');
+  const lg = legs(v, r, [52, 104 + b], [70, 104 + b], PANT, 7.5, shoe);
+  const PK = v.mat('#302c3a', 'cloth'); v.poly([[lg.kF[0] - 3, lg.kF[1] - 10], [lg.kF[0] + 7, lg.kF[1] - 10], [lg.kF[0] + 7, lg.kF[1] - 2], [lg.kF[0] - 3, lg.kF[1] - 2]], PK, 2);
+  // torso: tee + open jacket
+  v.part(() => { v.poly([[48, 68 + b], [76, 68 + b], [78, 106 + b], [46, 106 + b]], TEE, 5); });
   v.part(() => {
-    v.poly([[44, 54 + s.b], [80, 54 + s.b], [86, 92 + s.b], [40, 92 + s.b]], HOOD, 7);
-    v.ell(62, 56 + s.b, 17, 6, HOOD, [0, -0.3]); // bunched hood
+    v.poly([[42, 70 + b], [55, 67 + b], [56, 108 + b], [40, 108 + b]], JK, 5);
+    v.poly([[69, 67 + b], [82, 70 + b], [84, 108 + b], [68, 108 + b]], JK, 5);
+    v.ell(61, 67 + b, 15, 5, JK, [0, -0.3]); // hood roll behind the neck
   });
-  v.fold(48, 62 + s.b, 50, 76 + s.b, 46, 90 + s.b, 2); v.fold(76, 64 + s.b, 78, 78 + s.b, 82, 90 + s.b, 2); v.fold(56, 86 + s.b, 62, 88 + s.b, 70, 86 + s.b, 1, 0.6);
-  const PK = v.mat(e >= 2 ? '#3e1c60' : '#2e2a42', 'cloth'); v.poly([[52, 76 + s.b], [76, 76 + s.b], [78, 88 + s.b], [50, 88 + s.b]], PK, 3);
-  const BAND = v.mat('#2a2438', 'cloth'); v.poly([[40, 89 + s.b], [86, 89 + s.b], [86, 94 + s.b], [40, 94 + s.b]], BAND, 2);
-  const DS = e >= 1 ? pink : '#e8e0ff'; v.dline(57, 60 + s.b, 56, 72 + s.b, DS); v.dline(66, 60 + s.b, 67, 71 + s.b, DS); v.drect(55, 72 + s.b, 2, 3, '#ffffff'); v.drect(66, 71 + s.b, 2, 3, '#ffffff');
-  const WV = e >= 1 ? cyan : '#9a8ac0'; [1, 3, 5, 2, 4, 6, 3, 1, 2].forEach((hh, i) => v.drect(68 + i, 66 + s.b - hh / 2, 1, hh, WV));
-  if (e >= 1) { const E = v.mat(pink, 'emit'); v.cap(44, 55 + s.b, 40, 91 + s.b, 0.6, 0.6, E); const G = v.mat('#ffcf3a', 'metal'); for (let i = 0; i <= 10; i++) v.ell(53 + i * 1.8, 58 + s.b + Math.sin((i / 10) * Math.PI) * 7, 1.2, 1.2, G); }
-  head(v, s, { iris: e >= 2 ? '#ffe03a' : '#b048ff', brow: 'fierce', mouth: 'grin', skin: '#f2c39a', hideEyes: e >= 2 }, blink);
-  const [hx, hy] = s.head;
-  // shaved sides + mohawk
-  const STB = v.mat('#4a3858', 'hair'); v.part(() => { v.ell(hx - 4, hy - 9, 15, 10, STB, [0, -0.4]); });
+  v.fold(45, 78 + b, 46, 92 + b, 44, 106 + b, 1); v.fold(80, 78 + b, 81, 92 + b, 82, 106 + b, 1);
+  for (let y = 70; y < 107; y += 2) { v.dot(55, y + b, '#b8b0c8'); v.dot(69, y + b, '#b8b0c8'); } // zipper teeth
+  v.dline(58, 70 + b, 57, 86 + b, '#f0ecff'); v.dline(66, 70 + b, 67, 85 + b, '#f0ecff'); v.drect(56, 86 + b, 2, 3, '#ffffff'); v.drect(67, 85 + b, 2, 3, '#ffffff');
+  v.drect(73, 80 + b, 3, 3, '#5ac8ff'); v.dot(74, 79 + b, '#bfefff');
+  if (e >= 1) { const G = v.mat('#ffcf3a', 'metal'); for (let i = 0; i <= 12; i++) v.ell(54 + i * 1.3, 69 + b + Math.sin((i / 12) * Math.PI) * 6, 1.4, 1.4, G); }
+  // head
+  const HB = v.mat('#1e1826', 'hair'), HP = v.mat(pink, 'hair');
+  v.part(() => { v.ell(cx - 3, cy - 4, 22, 19, HB); });
+  headShape(v, cx, cy, skin);
+  face(v, cx, cy, { skin, iris: e >= 2 ? '#ffb43a' : '#8a4ae8', brow: 'fierce', mouth: 'smirk', hideEyes: e >= 2 }, ex);
+  // dark side hair + fringe locks, then the pink mohawk on top
+  v.part(() => { v.poly([[cx - 21, cy + 2], [cx - 22, cy - 12], [cx - 10, cy - 20], [cx + 6, cy - 20], [cx + 18, cy - 14], [cx + 21, cy - 4], [cx + 14, cy - 9], [cx + 10, cy - 3], [cx + 4, cy - 10], [cx - 2, cy - 5], [cx - 8, cy - 11], [cx - 14, cy - 3], [cx - 18, cy + 6]], HB, 4); });
   v.part(() => {
-    const spikes: P[] = [[-12, -24], [-5, -32], [3, -35], [10, -30], [16, -22]];
-    v.ell(hx + 1, hy - 14, 9, 9, HAIR);
-    for (const [dx, dy] of spikes) v.poly([[hx + dx - 5, hy - 12], [hx + dx + dy * -0.08, hy + dy - s.sway * 0.3], [hx + dx + 5, hy - 12]], HAIR, 3, [0.1, -0.1]);
+    for (const [dx, h, lean] of SPIKES) v.poly([[cx + dx - 7, cy - 10], [cx + dx + lean, cy - 12 - h - (o.f % 2 ? 0 : 1)], [cx + dx + 5, cy - 12]], HP, 3, [0.15, -0.1]);
+    v.ell(cx, cy - 15, 13, 6, HP);
+    for (const [dx, dy] of [[4, 2], [12, 1]]) v.poly([[cx + dx - 3, cy - 14], [cx + dx + 3, cy - 14], [cx + dx + 1, cy - 4 + dy]], HP, 2);
   });
-  for (const [dx, dy] of [[-5, -30], [3, -33], [10, -28]]) v.fold(hx + dx, hy + dy + 4, hx + dx + 1, hy + dy + 10, hx + dx, hy - 13, 1, 0.5);
-  if (e >= 2) { const E = v.mat('#ffd0f4', 'emit'); for (const [dx, dy] of [[-12, -24], [-5, -32], [3, -35], [10, -30], [16, -22]]) v.ell(hx + dx + dy * -0.08, hy + dy + 2, 1.2, 1.5, E); }
-  // headphones
-  const BANDM = v.mat('#4a4060', 'plastic'), CUP = v.mat('#2a2438', 'plastic'), RING = v.mat(e >= 1 ? pink : cyan, 'emit'), PAD = v.mat('#3e3450', 'cloth');
-  v.cap(hx - 16, hy - 4, hx - 6, hy - 19, 2.2, 2.2, BANDM); v.cap(hx + 8, hy - 19, hx + 16, hy - 8, 2, 2, BANDM);
-  v.ell(hx - 16, hy + 2, 7, 9, CUP); v.ell(hx - 15, hy + 2, 7, 9, RING); v.ell(hx - 15, hy + 2, 5, 7, CUP); v.ell(hx - 16, hy + 1, 2.5, 3.5, PAD);
-  if (e === 1) { const SG = v.mat('#1a1428', 'plastic'), LN = v.mat(cyan, 'emit'); v.poly([[hx - 4, hy - 13], [hx + 18, hy - 12], [hx + 17, hy - 7], [hx - 4, hy - 8]], SG, 2); v.cap(hx - 2, hy - 11, hx + 16, hy - 10, 0.6, 0.6, LN); }
-  if (e >= 2) { const VZ = v.mat('#ffd23a', 'metal'); v.poly([[hx - 2, hy - 4], [hx + 20, hy - 3], [hx + 19, hy + 6], [hx - 2, hy + 6]], VZ, 3); v.drect(hx + 4, hy, 4, 2, pink); v.drect(hx + 13, hy, 3, 2, pink); }
-  // front arm + subwoofer gauntlet held forward
-  const fa = (o.walk ?? -1) >= 0 ? [0, 2, 0, -2][o.walk!] : 0;
-  arm(v, s.shF, [84, 70 + s.b + fa], [92, 72 + s.b + fa], HOOD, SK, 7);
-  const sz = e >= 1 ? 2 : 0; const gx = 86 - sz, gy = 58 + s.b + fa - sz, gw = 30 + sz * 2;
-  const BOX = v.mat(e >= 2 ? '#4a2a6a' : '#3a3450', 'metal'), SUR = v.mat('#16121e', 'rubber'), CONE = v.mat('#2e2840', 'plastic'), DUST = v.mat('#b8b0d8', 'metal'), LED = v.mat(e >= 1 ? pink : '#b04aff', 'emit');
-  v.poly([[gx, gy], [gx + gw, gy], [gx + gw, gy + gw], [gx, gy + gw]], BOX, 4, [0.15, 0]);
-  const cx = gx + gw / 2, cy = gy + gw / 2;
-  v.ell(cx, cy, 12 + sz / 2, 12 + sz / 2, LED); v.ell(cx, cy, 11 + sz / 2, 11 + sz / 2, SUR); v.ell(cx, cy, 8.5, 8.5, CONE, [0, 0], true); v.ell(cx, cy, 3.5, 3.5, DUST);
-  for (const [bx, by] of [[gx + 3, gy + 3], [gx + gw - 4, gy + 3], [gx + 3, gy + gw - 4], [gx + gw - 4, gy + gw - 4]]) { v.dot(bx, by, '#e8e0ff'); v.dot(bx + 1, by + 1, '#3a3050'); }
-  if (e >= 1 && o.f % 2) { const W = v.mat('#ff9ae8', 'emit'); v.cap(gx + gw + 4, gy + 4, gx + gw + 6, gy + gw - 4, 0.6, 0.6, W); v.cap(gx + gw + 8, gy + 1, gx + gw + 10, gy + gw - 1, 0.6, 0.6, W); }
+  for (const [dx, h, lean] of SPIKES) v.fold(cx + dx + lean * 0.8, cy - 12 - h * 0.85, cx + dx + lean * 0.4, cy - 12 - h * 0.45, cx + dx, cy - 13, 1, 0.5);
+  if (e >= 2) for (const [dx, h, lean] of SPIKES.filter((_, i) => i % 2 === 0)) star(v, cx + dx + lean, cy - 15 - h, '#ffe0fa');
+  // headphones: band over the crown, big cup on the ear
+  const BD = v.mat('#2a2434', 'plastic'), CU = v.mat('#24202e', 'plastic'), RG = v.mat(e >= 1 ? '#e040c0' : '#2ad0d8', 'plastic');
+  v.part(() => { v.cap(cx - 19, cy - 2, cx - 10, cy - 18, 2.5, 2.5, BD); v.cap(cx - 10, cy - 18, cx + 6, cy - 21, 2.5, 2.5, BD); });
+  v.ell(cx - 19, cy + 3, 8, 10, RG); v.ell(cx - 18, cy + 3, 5.5, 7.5, CU); v.ell(cx - 19, cy + 2, 2.5, 3.5, v.mat('#3a3448', 'cloth'));
+  if (e === 1) { const SG = v.mat('#1a1624', 'plastic'), LN = v.mat('#9a5aff', 'plastic'); v.poly([[cx - 8, cy - 18], [cx + 20, cy - 16], [cx + 20, cy - 9], [cx - 8, cy - 11]], SG, 2); v.ell(cx + 2, cy - 13, 5, 3, LN); v.ell(cx + 14, cy - 12, 4, 3, LN); v.dot(cx + 1, cy - 14, '#ffffff'); v.dot(cx + 13, cy - 13, '#ffffff'); }
+  if (e >= 2) { const VZ = v.mat('#ffc030', 'plastic'), LN = v.mat('#ff7a2a', 'emit'); v.poly([[cx - 6, cy - 3], [cx + 21, cy - 2], [cx + 20, cy + 8], [cx - 6, cy + 7]], VZ, 2); v.poly([[cx - 4, cy - 1], [cx + 19, cy], [cx + 18, cy + 6], [cx - 4, cy + 5]], LN, 1); v.dline(cx - 2, cy, cx + 6, cy, '#fff4b0'); }
+  // front arm: elbow bent, hand gripping the speaker's side handle
+  const fa = r.wk >= 0 ? [0, 2, 0, -2][r.wk] : 0;
+  limb(v, [77, 74 + b], [85, 88 + b + fa], [91, 94 + b + fa], 6, 5, JK);
+  hand(v, 92, 94 + b + fa, skin);
+  const sz = e * 2; speaker(v, 92, 74 + b + fa - sz, 30 + sz, 34 + sz, e >= 2 ? '#3a2a50' : '#2e2a3a', e >= 1 ? pink : '#9a5aff', 1);
 }
 
-// ---------------------------------------------------------------- FLOW HEALER
+// ============================================================ FLOW HEALER
 function flow(v: Vol, o: Pose) {
-  const e = o.evo ?? 0; const s = skel(o); const blink = o.f % 4 === 3 && o.walk === undefined;
-  const cy = '#3ae8ff', pk = '#ff6ad8', gold = '#ffd86a';
-  const ROBE = v.mat(e >= 2 ? '#eef4ff' : e >= 1 ? '#2a62b8' : '#3a78d8', 'cloth'), TOP = v.mat(e >= 2 ? '#fff4d8' : '#eef2ff', 'cloth'), SK = v.mat('#f6cba6', 'skin');
-  const HAIR = v.mat(cy, 'hair'), SKIRT = v.mat(e >= 2 ? '#fdfdff' : '#a8e4ff', 'cloth'), SKIRT2 = v.mat(e >= 2 ? '#c8ecff' : '#3ad0f0', 'cloth'), OBI = v.mat(e >= 2 ? gold : pk, 'cloth');
-  const SHOE = v.mat('#eef2ff', 'plastic'), SOLE = v.mat(e >= 2 ? gold : cy, 'rubber');
-  const [hx, hy] = s.head;
-  if (e >= 2) { const HP = v.mat(gold, 'emit'); for (let i = 0; i < 90; i++) { const an = (i / 90) * Math.PI * 2; if (i % 9 < 6) v.ell(30 + Math.cos(an) * 13, 72 + s.b + Math.sin(an) * 30, 0.8, 0.8, HP); } }
-  // long hair behind
-  v.part(() => { v.ell(hx - 3, hy - 2, 20, 19, HAIR); v.poly([[hx - 21, hy], [hx + 2, hy + 4], [hx - 4, hy + 46], [hx - 14, hy + 54 + s.sway], [hx - 26, hy + 40]], HAIR, 6); });
-  v.fold(hx - 18, hy + 6, hx - 20, hy + 26, hx - 18, hy + 48, 1); v.fold(hx - 10, hy + 6, hx - 12, hy + 28, hx - 10, hy + 48, 1);
-  // flowing robe behind
-  const len = e >= 1 ? 128 : 120; const sw = s.sway;
-  v.poly([[44, 56 + s.b], [78, 56 + s.b], [80, len - 6], [52, len], [26 - sw, len - 4], [34, 84]], ROBE, 6);
-  v.fold(46, 70, 38, 96, 32 - sw, len - 6, 2); v.fold(56, 74, 50, 100, 46 - sw, len - 4, 2);
-  const HEM = e >= 2 ? gold : pk; for (let x = 28 - sw; x < 80; x += 3) v.dot(x, len - 5 + ((x >> 1) % 2), HEM);
-  arm(v, s.shB, [38, 70 + s.b], [32, 80 + s.b - s.sway], ROBE, SK, 7); // back arm out gracefully
-  v.poly([[30, 66 + s.b], [44, 64 + s.b], [42, 84 + s.b], [26, 86 + s.b - sw]], ROBE, 4); // wide sleeve drape
-  const shoe = (x: number, y: number) => sneaker(v, x, y, SHOE, SOLE);
-  leg(v, s.hipB, s.kneeB, s.ankB, v.mat('#f6cba6', 'skin'), shoe, 6);
-  leg(v, s.hipF, s.kneeF, s.ankF, v.mat('#f6cba6', 'skin'), shoe, 6);
-  v.part(() => { v.poly([[46, 54 + s.b], [78, 54 + s.b], [80, 84 + s.b], [44, 84 + s.b]], TOP, 6); });
-  v.poly([[46, 54 + s.b], [56, 54 + s.b], [62, 82 + s.b], [44, 82 + s.b]], ROBE, 4); v.poly([[70, 54 + s.b], [78, 54 + s.b], [80, 82 + s.b], [66, 82 + s.b]], ROBE, 4);
-  v.fold(50, 60 + s.b, 52, 70 + s.b, 48, 80 + s.b, 1); v.fold(74, 60 + s.b, 76, 70 + s.b, 78, 80 + s.b, 1);
-  // layered skirt
-  v.poly([[44, 84 + s.b], [80, 84 + s.b], [88, 104], [36, 104]], SKIRT, 5);
-  v.poly([[42, 94], [82, 94], [92, 110], [32, 110]], SKIRT2, 5);
-  for (const fx of [44, 54, 64, 74, 84]) v.fold(fx - 2 + (fx - 62) * 0.05, 96, fx - 2 + (fx - 62) * 0.12, 104, fx - 2 + (fx - 62) * 0.2, 109, 1, 0.8);
-  const SE = e >= 2 ? gold : pk; for (let x = 33; x < 92; x += 4) v.dot(x, 109, SE);
-  v.poly([[44, 80 + s.b], [80, 80 + s.b], [80, 88 + s.b], [44, 88 + s.b]], OBI, 3); v.ell(62, 84 + s.b, 5, 5, OBI); v.poly([[60, 86 + s.b], [64, 86 + s.b], [62, 98 + s.b], [56, 96 + s.b]], OBI, 2);
-  head(v, s, { iris: '#18b0c8', brow: 'soft', mouth: 'smile', skin: '#f6cba6' }, blink);
-  // fringe
-  v.part(() => {
-    v.poly([[hx - 20, hy - 2], [hx - 16, hy - 16], [hx - 4, hy - 22], [hx + 10, hy - 21], [hx + 19, hy - 12], [hx + 20, hy - 2], [hx + 14, hy - 10], [hx + 8, hy - 6], [hx + 2, hy - 12], [hx - 6, hy - 6], [hx - 12, hy - 4], [hx - 16, hy + 6]], HAIR, 5);
-    v.cap(hx + 18, hy - 6, hx + 20, hy + 14, 3, 1.5, HAIR);
-  });
-  v.fold(hx - 8, hy - 20, hx - 4, hy - 12, hx - 6, hy - 6, 1, 0.6); v.fold(hx + 6, hy - 20, hx + 8, hy - 14, hx + 8, hy - 6, 1, 0.6);
-  if (e === 0) { const CL = v.mat(pk, 'plastic'); v.ell(hx - 12, hy - 14, 3, 3, CL); }
-  if (e >= 1) { const LF = v.mat('#3ac86a', 'cloth'); v.cap(hx - 20, hy - 10, hx - 4, hy - 22, 1.5, 1.5, LF); v.cap(hx - 4, hy - 22, hx + 18, hy - 14, 1.5, 1.5, LF);
-    const cols = e >= 2 ? [gold, '#ffffff', '#ffb8e8'] : [pk, '#ffe03a', '#ffffff']; [[-19, -10], [-13, -17], [-6, -21], [1, -22], [8, -20], [14, -16]].forEach(([dx, dy], i) => { const F = v.mat(cols[i % 3], 'plastic'); v.ell(hx + dx, hy + dy, 3, 3, F); v.dot(hx + dx, hy + dy, '#ffe03a'); }); }
-  if (e >= 2) { const HL = v.mat(gold, 'emit'); for (let i = 0; i < 40; i++) { const an = (i / 40) * Math.PI * 2; v.ell(hx + Math.cos(an) * 16, hy - 30 + Math.sin(an) * 3, 0.6, 0.6, HL); } }
-  v.dot(hx + 12, hy + 6, '#ffffff'); v.dot(hx + 11, hy + 7, pk); v.dot(hx + 13, hy + 7, pk);
-  // front arm raises the fan
-  const fa = (o.walk ?? -1) >= 0 ? [0, 2, 0, -2][o.walk!] : 0;
-  arm(v, s.shF, [84, 70 + s.b + fa], [96, 72 + s.b + fa], ROBE, SK, 7);
-  v.poly([[78, 60 + s.b + fa], [90, 62 + s.b + fa], [96, 78 + s.b + fa], [80, 80 + s.b + fa]], ROBE, 4); v.fold(82, 64 + s.b, 86, 72 + s.b, 84, 78 + s.b, 1);
-  const fx = 98, fy = 70 + s.b + fa, r = e >= 2 ? 28 : e >= 1 ? 25 : 22; const a0 = -Math.PI * 0.62, a1 = Math.PI * 0.05; const ribs = 10;
-  const c1 = v.mat(e >= 2 ? '#ffffff' : pk, 'cloth'), c2 = v.mat(e >= 2 ? gold : cy, 'cloth');
-  for (let i = 0; i < ribs; i++) { const t0 = a0 + ((a1 - a0) * i) / ribs, t1 = a0 + ((a1 - a0) * (i + 1)) / ribs; const tm = (t0 + t1) / 2;
-    v.poly([[fx, fy], [fx + Math.cos(t0) * r, fy + Math.sin(t0) * r], [fx + Math.cos(tm) * (r + 1.5), fy + Math.sin(tm) * (r + 1.5)], [fx + Math.cos(t1) * r, fy + Math.sin(t1) * r]], i % 2 ? c1 : c2, 2, [Math.cos(tm) * (i % 2 ? 0.25 : -0.25), Math.sin(tm) * 0.2]); }
-  for (let i = 0; i <= ribs; i++) { const t = a0 + ((a1 - a0) * i) / ribs; v.dline(fx, fy, fx + Math.cos(t) * r * 0.5, fy + Math.sin(t) * r * 0.5, '#6a3a2a'); }
-  if (e >= 1) { const LED = o.f % 2 ? '#ffffff' : '#ffe03a'; for (let i = 0; i <= ribs; i++) { const t = a0 + ((a1 - a0) * i) / ribs; v.dot(fx + Math.cos(t) * (r - 2), fy + Math.sin(t) * (r - 2), LED); } }
-  v.ell(fx, fy, 2.5, 2.5, v.mat(gold, 'metal')); v.ell(fx - 1, fy + 3, 4.5, 4.5, SK);
+  const e = o.evo ?? 0, r = rig(o), ex = exprOf(o), b = r.b;
+  const skin = '#ecbe96', cy0 = '#3ad8f0', gold = '#e8c060';
+  const HAORI = v.mat(e >= 2 ? '#f2f4fa' : '#2a62b0', 'cloth'), TOP = v.mat('#f4f2f8', 'cloth'), HAK = v.mat(e >= 2 ? '#f6f6fc' : '#e8e8f2', 'cloth'), OBI = v.mat(e >= 2 ? gold : '#e03aa8', 'cloth'), HAIR = v.mat(cy0, 'hair');
+  const cx = 62, cy = 42 + b + r.hb;
+  if (e >= 2) { const HL = v.mat('#ffd860', 'emit'); for (let i = 0; i < 64; i++) { const an = (i / 64) * Math.PI * 2; v.ell(cx + Math.cos(an) * 17, cy - 30 + Math.sin(an) * 3.5, 0.7, 0.7, HL); } }
+  // ponytail + back hair
+  v.part(() => { v.ell(cx - 3, cy - 3, 23, 21, HAIR); v.poly([[cx - 22, cy - 2], [cx - 8, cy - 6], [cx - 12, cy + 34], [cx - 20, cy + 40 + r.sw], [cx - 28, cy + 24]], HAIR, 5); });
+  v.fold(cx - 20, cy + 4, cx - 21, cy + 22, cx - 20, cy + 36, 1, 0.6); v.fold(cx - 13, cy + 2, cx - 15, cy + 20, cx - 15, cy + 34, 1, 0.6);
+  // haori back panel (long coat behind the body)
+  v.poly([[42, 70 + b], [80, 70 + b], [90, 138], [34, 138]], HAORI, 5);
+  // back arm hanging in a wide sleeve
+  v.part(() => { v.poly([[38, 72 + b], [50, 70 + b], [52, 104 + b], [32, 108 + b]], HAORI, 5); });
+  v.fold(42, 78 + b, 40, 92 + b, 38, 104 + b, 1); hand(v, 44, 108 + b, skin);
+  const shoe = (x: number, y: number) => hiTop(v, x, y, '#f0f2ff', '#3a6ae0', e >= 2 ? '#ffd060' : '#4a8af0');
+  legs(v, r, [54, 108 + b], [68, 108 + b], v.mat('#f0f0f8', 'cloth'), 6, shoe);
+  // hakama: wide pleated skirt
+  v.poly([[44, 96 + b], [80, 96 + b], [90, 141], [34, 141]], HAK, 4);
+  for (let k = 0; k < 6; k++) { const x = 44 + k * 7; v.fold(x + 2, 100 + b, x + 1 + (x - 62) * 0.06, 118, x + (x - 62) * 0.16, 139, 1, 0.75); }
+  // kimono top (crossed V collar)
+  v.part(() => { v.poly([[48, 68 + b], [76, 68 + b], [78, 98 + b], [46, 98 + b]], TOP, 5); });
+  v.dline(52, 68 + b, 63, 86 + b, '#b8b8c8'); v.dline(72, 68 + b, 63, 86 + b, '#b8b8c8');
+  // haori fronts with patterned trim
+  v.poly([[42, 70 + b], [52, 68 + b], [56, 138], [34, 138]], HAORI, 4); v.poly([[72, 68 + b], [82, 70 + b], [90, 138], [70, 138]], HAORI, 4);
+  v.fold(46, 80 + b, 44, 106, 41, 134, 1); v.fold(78, 80 + b, 80, 106, 84, 134, 1);
+  const TR = e >= 2 ? gold : '#e8c860'; v.dline(52, 68 + b, 56, 137, TR); v.dline(72, 68 + b, 70, 137, TR);
+  const FL = e >= 2 ? ['#e8c060', '#ffffff'] : ['#ff7ac8', '#ffd860']; for (const [x, y, i] of [[40, 112, 0], [45, 126, 1], [80, 110, 0], [85, 124, 1], [44, 90, 1], [78, 92, 0], [38, 132, 1], [86, 134, 0]]) { v.dot(x, y + (y < 100 ? b : 0), FL[i]); v.dot(x + 1, y + (y < 100 ? b : 0), FL[i]); v.dot(x, y + 1 + (y < 100 ? b : 0), FL[i]); }
+  // obi + knot + hanging tie
+  v.poly([[46, 90 + b], [78, 90 + b], [78, 98 + b], [46, 98 + b]], OBI, 3); v.ell(62, 94 + b, 5, 4.5, OBI); v.poly([[60, 96 + b], [65, 96 + b], [64, 112 + b], [58, 110 + b]], OBI, 2);
+  headShape(v, cx, cy, skin);
+  face(v, cx, cy, { skin, iris: '#18a8c8', brow: 'calm', mouth: 'pout' }, ex);
+  v.part(() => { v.poly([[cx - 21, cy + 4], [cx - 20, cy - 12], [cx - 8, cy - 21], [cx + 8, cy - 21], [cx + 19, cy - 13], [cx + 21, cy - 2], [cx + 15, cy - 9], [cx + 11, cy - 4], [cx + 6, cy - 12], [cx, cy - 6], [cx - 5, cy - 13], [cx - 12, cy - 4], [cx - 17, cy + 10]], HAIR, 5); v.cap(cx + 19, cy - 6, cx + 21, cy + 12, 3, 1.5, HAIR); });
+  v.fold(cx - 6, cy - 20, cx - 4, cy - 14, cx - 4, cy - 7, 1, 0.5); v.fold(cx + 6, cy - 20, cx + 8, cy - 14, cx + 9, cy - 5, 1, 0.5);
+  const ER = v.mat('#ffd040', 'metal'); v.ell(cx - 18, cy + 12, 1.5, 2, ER);
+  if (e === 0) { const BD = v.mat('#e040b0', 'plastic'); v.ell(cx - 14, cy - 18, 3.5, 3.5, BD); v.ell(cx - 18, cy - 13, 2.5, 2.5, BD); }
+  else { const cols = e >= 2 ? ['#ffd060', '#ffffff', '#ffb8d8', '#ffe8a0'] : ['#e040b0', '#ffd040', '#d0d0ff', '#ff70c0']; [[-19, -12], [-14, -18], [-7, -22], [0, -23], [7, -22], [13, -19], [18, -14]].forEach(([dx, dy], i) => { const M = v.mat(cols[i % 4], 'plastic'); v.ell(cx + dx, cy + dy, 3.2, 3.2, M); }); }
+  // front arm: elbow bent, fan raised at shoulder height
+  const fa = r.wk >= 0 ? [0, 2, 0, -2][r.wk] : 0;
+  v.part(() => { v.poly([[72, 70 + b], [84, 72 + b], [90, 96 + b + fa], [74, 98 + b + fa]], HAORI, 5); });
+  v.fold(78, 76 + b, 82, 86 + b, 80, 96 + b, 1);
+  limb(v, [84, 84 + b + fa], [88, 90 + b + fa], [92, 82 + b + fa], 4, 3.5, v.mat(skin, 'skin'));
+  const fx = 96, fy = 80 + b + fa, rr = 22 + e * 3; const a0 = -Math.PI * 0.55, a1 = Math.PI * 0.02, ribs = 11;
+  const c1 = v.mat(e >= 2 ? '#e8c878' : '#ff6ac8', 'cloth'), c2 = v.mat(e >= 2 ? '#f6e0a0' : '#5ae0ff', 'cloth');
+  for (let i = 0; i < ribs; i++) { const t0 = a0 + ((a1 - a0) * i) / ribs, t1 = a0 + ((a1 - a0) * (i + 1)) / ribs, tm = (t0 + t1) / 2;
+    v.poly([[fx, fy], [fx + Math.cos(t0) * rr, fy + Math.sin(t0) * rr], [fx + Math.cos(tm) * (rr + 1.5), fy + Math.sin(tm) * (rr + 1.5)], [fx + Math.cos(t1) * rr, fy + Math.sin(t1) * rr]], i % 2 ? c1 : c2, 2, [Math.cos(tm) * (i % 2 ? 0.2 : -0.2), 0]); }
+  for (let i = 0; i <= ribs; i++) { const t = a0 + ((a1 - a0) * i) / ribs; v.dline(fx, fy, fx + Math.cos(t) * rr * 0.42, fy + Math.sin(t) * rr * 0.42, '#5a3424'); }
+  if (e >= 1) for (let i = 0; i <= ribs; i++) { const t = a0 + ((a1 - a0) * i) / ribs; v.dot(fx + Math.cos(t) * (rr - 1), fy + Math.sin(t) * (rr - 1), e >= 2 ? '#fff6d0' : '#ffffff'); }
+  hand(v, 94, 82 + b + fa, skin);
 }
 
-// ---------------------------------------------------------------- TEMPO DANCER
+// ============================================================ TEMPO DANCER
 function tempo(v: Vol, o: Pose) {
-  const e = o.evo ?? 0; const s = skel(o); const blink = o.f % 4 === 3 && o.walk === undefined;
-  const lime = '#b8ff3a', mag = '#ff3ec8';
-  const JK = v.mat(e >= 2 ? '#22224a' : '#2a2458', 'plastic'), STR = v.mat(lime, 'cloth'), PANT = v.mat('#2a2458', 'cloth'), SK = v.mat('#e8b48c', 'skin');
-  const SHOE = v.mat('#f4f4ff', 'plastic'), SOLE = v.mat(lime, e >= 1 ? 'emit' : 'rubber'), HAIR = v.mat(lime, 'hair');
-  const [hx, hy] = s.head; const sw = s.sway;
-  const SC = v.mat(e >= 2 ? '#e8ff9a' : lime, 'cloth'); const len = e >= 1 ? 40 : 24;
-  v.part(() => { v.cap(48, 56 + s.b, 40 - len * 0.4, 52 + sw * 2, 5, 4, SC); v.cap(40 - len * 0.4, 52 + sw * 2, 44 - len, 46 + sw * 3, 4, 2, SC); });
-  v.fold(46, 56 + s.b, 40 - len * 0.3, 54 + sw * 2, 44 - len * 0.9, 47 + sw * 3, 1, 0.7);
-  if (e >= 2) { const WG = v.mat('#3affd8', 'emit'), WG2 = v.mat('#c8fff4', 'emit'); v.poly([[40, 70 + s.b], [6, 40 + s.b + sw], [16, 66 + s.b], [4, 76 + s.b], [32, 84 + s.b]], WG, 2); v.cap(10, 46 + s.b + sw, 34, 72 + s.b, 0.6, 0.6, WG2); }
-  // back arm raised with a glowstick (dynamic pose)
-  arm(v, s.shB, [40, 66 + s.b], [34, 54 + s.b - sw], JK, SK, 6);
-  const G2 = v.mat(mag, 'emit'); v.cap(34, 56 + s.b - sw, 26, 32 + s.b - sw * 2, 2, 2, G2); v.ell(34, 54 + s.b - sw, 4.5, 4.5, SK);
-  const shoe = (x: number, y: number) => sneaker(v, x, y, SHOE, SOLE, '#7a7a98');
-  leg(v, s.hipB, s.kneeB, s.ankB, PANT, shoe, 7);
-  v.cap(s.hipB[0] - 6, s.hipB[1], s.kneeB[0] - 6, s.kneeB[1], 0.6, 0.6, STR);
-  leg(v, s.hipF, s.kneeF, s.ankF, PANT, shoe, 7);
-  v.cap(s.hipF[0] + 5, s.hipF[1] + 2, s.kneeF[0] + 5, s.kneeF[1], 0.6, 0.6, STR); v.cap(s.kneeF[0] + 4, s.kneeF[1], s.ankF[0] + 4, s.ankF[1] - 4, 0.6, 0.6, STR);
-  v.part(() => { v.poly([[46, 54 + s.b], [78, 54 + s.b], [82, 90 + s.b], [42, 90 + s.b]], JK, 6); });
-  v.fold(50, 62 + s.b, 52, 76 + s.b, 48, 88 + s.b, 1); v.fold(76, 62 + s.b, 76, 76 + s.b, 80, 88 + s.b, 1);
-  v.poly([[46, 56 + s.b], [49, 56 + s.b], [46, 90 + s.b], [43, 90 + s.b]], STR, 1); v.poly([[76, 56 + s.b], [79, 56 + s.b], [82, 90 + s.b], [79, 90 + s.b]], STR, 1);
-  const ZIP = v.mat('#c8c8e0', 'metal'); v.cap(62, 58 + s.b, 62, 88 + s.b, 0.8, 0.8, ZIP); v.ell(62, 64 + s.b, 1.5, 2, ZIP);
-  v.poly([[50, 52 + s.b], [62, 56 + s.b], [56, 63 + s.b]], STR, 2); v.poly([[76, 52 + s.b], [63, 56 + s.b], [69, 63 + s.b]], STR, 2);
-  const HM = v.mat('#3a3478', 'cloth'); v.poly([[42, 87 + s.b], [82, 87 + s.b], [82, 92 + s.b], [42, 92 + s.b]], HM, 2);
-  v.drect(68, 68 + s.b, 5, 3, mag); v.dot(70, 69 + s.b, '#ffffff');
-  head(v, s, { iris: '#58c41a', brow: 'up', mouth: 'open', skin: '#e8b48c', hideEyes: e >= 2 }, blink);
-  v.part(() => { v.ell(hx - 13, hy - 20, 8, 8, HAIR); v.ell(hx + 9, hy - 23, 8, 8, HAIR); });
-  v.fold(hx - 16, hy - 24, hx - 13, hy - 20, hx - 10, hy - 16, 1, 0.5); v.fold(hx + 6, hy - 27, hx + 9, hy - 23, hx + 12, hy - 19, 1, 0.5);
-  v.part(() => { v.poly([[hx - 20, hy + 2], [hx - 18, hy - 14], [hx - 6, hy - 20], [hx + 10, hy - 19], [hx + 19, hy - 10], [hx + 20, hy], [hx + 13, hy - 7], [hx + 10, hy - 2], [hx + 5, hy - 9], [hx - 2, hy - 5], [hx - 7, hy - 11], [hx - 14, hy - 4], [hx - 17, hy + 8]], HAIR, 5); });
-  v.fold(hx - 4, hy - 18, hx - 3, hy - 12, hx - 2, hy - 6, 1, 0.5); v.fold(hx + 8, hy - 18, hx + 9, hy - 12, hx + 10, hy - 3, 1, 0.5);
-  const SB = v.mat(mag, 'cloth'); v.part(() => { v.cap(hx - 20, hy - 9, hx, hy - 17, 3, 3, SB); v.cap(hx, hy - 17, hx + 19, hy - 11, 3, 3, SB); }); v.drect(hx - 2, hy - 18, 4, 2, '#ffffff');
-  if (e >= 2) { const VZ = v.mat(mag, 'plastic'); v.poly([[hx - 1, hy - 4], [hx + 20, hy - 3], [hx + 19, hy + 6], [hx - 1, hy + 6]], VZ, 3); }
-  const fa = (o.walk ?? -1) >= 0 ? [0, 2, 0, -2][o.walk!] : 0;
-  arm(v, s.shF, [84, 72 + s.b + fa], [92, 80 + s.b + fa], JK, SK, 6);
-  v.cap(80, 64 + s.b, 88, 76 + s.b + fa, 0.6, 0.6, STR);
-  const G1 = v.mat(lime, 'emit'); v.cap(92, 82 + s.b + fa, 108, 60 + s.b + fa - (o.f % 2), 2, 2, G1); v.ell(92, 80 + s.b + fa, 4.5, 4.5, SK);
-  const WB = v.mat(mag, 'cloth'); v.cap(87, 76 + s.b + fa, 90, 78 + s.b + fa, 3, 3, WB);
-  if (e >= 1) { v.dot(108, 58 + s.b + fa, '#ffffff'); v.dot(111, 55 + s.b + fa, '#e8ffb0'); v.dot(24, 29 + s.b, '#ffb8ec'); }
+  const e = o.evo ?? 0, r = rig(o), ex = exprOf(o), b = r.b;
+  const skin = '#e0a882', lime = '#a8f03a', mag = '#ff3ec8';
+  const JK = v.mat('#24224a', 'cloth'), PANT = v.mat('#2a2452', 'cloth'), STR = v.mat(lime, 'cloth'), HAIR = v.mat('#98e040', 'hair');
+  const cx = 62, cy = 42 + b + r.hb;
+  if (e >= 2) { const AR = v.mat('#5af0c8', 'plastic'); v.poly([[34, 78 + b], [4, 60 + b - r.sw], [16, 86 + b], [2, 96 + b], [30, 98 + b]], AR, 3, [-0.2, 0]); }
+  // back arm raised: hand at head height holding the pink stick up, lime stick over the shoulder
+  const G1 = v.mat(lime, 'emit'), G2 = v.mat(mag, 'emit');
+  v.cap(36, 70 + b - r.sw, 4, 60 + b - r.sw, 2.6, 2.6, G1);
+  limb(v, [46, 74 + b], [36, 84 + b], [38, 70 + b - r.sw], 6, 5, JK);
+  v.cap(39, 70 + b - r.sw, 34, 44 + b - r.sw * 2, 2.6, 2.6, G2);
+  hand(v, 38, 70 + b - r.sw, skin);
+  const shoe = (x: number, y: number) => hiTop(v, x, y, '#3a52d8', '#f0f2ff', lime, e >= 1 ? 'emit' : 'rubber');
+  const lg = legs(v, r, [52, 104 + b], [70, 104 + b], PANT, 7.5, shoe);
+  v.cap(52 - 6, 104 + b, lg.kB[0] - 6, lg.kB[1], 0.7, 0.7, STR); v.cap(lg.kB[0] - 6, lg.kB[1], lg.aB[0] - 5, lg.aB[1] - 2, 0.7, 0.7, STR);
+  v.cap(70 + 5, 104 + b, lg.kF[0] + 6, lg.kF[1], 0.7, 0.7, STR); v.cap(lg.kF[0] + 6, lg.kF[1], lg.aF[0] + 6, lg.aF[1] - 2, 0.7, 0.7, STR);
+  // hooded track jacket
+  v.part(() => { v.poly([[46, 68 + b], [78, 68 + b], [82, 106 + b], [42, 106 + b]], JK, 6); v.ell(60, 67 + b, 15, 5, JK, [0, -0.3]); });
+  v.fold(48, 78 + b, 49, 92 + b, 46, 104 + b, 1); v.fold(76, 78 + b, 77, 92 + b, 80, 104 + b, 1);
+  v.poly([[49, 70 + b], [52, 70 + b], [47, 106 + b], [44, 106 + b]], STR, 1); v.poly([[72, 70 + b], [75, 70 + b], [80, 106 + b], [77, 106 + b]], STR, 1);
+  const ZIP = v.mat('#d0d0e8', 'metal'); v.cap(62, 70 + b, 62, 105 + b, 0.9, 0.9, ZIP); v.ell(62, 76 + b, 1.6, 2.2, ZIP);
+  v.drect(66, 84 + b, 6, 4, mag); v.dot(68, 85 + b, '#ffffff'); v.dot(69, 86 + b, '#ffffff');
+  const HM = v.mat('#302c64', 'cloth'); v.poly([[42, 102 + b], [82, 102 + b], [82, 107 + b], [42, 107 + b]], HM, 2);
+  headShape(v, cx, cy, skin);
+  face(v, cx, cy, { skin, iris: '#3ab83a', brow: 'excited', mouth: 'oh', hideEyes: e >= 2 }, ex);
+  // buns, fringe, headband
+  v.part(() => { v.ell(cx - 11, cy - 25, 9, 9, HAIR); v.ell(cx + 9, cy - 27, 9, 9, HAIR); });
+  v.fold(cx - 15, cy - 30, cx - 11, cy - 25, cx - 7, cy - 20, 1, 0.45); v.fold(cx + 5, cy - 32, cx + 9, cy - 27, cx + 13, cy - 22, 1, 0.45);
+  v.part(() => { v.poly([[cx - 21, cy + 5], [cx - 20, cy - 12], [cx - 6, cy - 19], [cx + 10, cy - 18], [cx + 20, cy - 10], [cx + 21, cy], [cx + 15, cy - 6], [cx + 12, cy - 1], [cx + 7, cy - 8], [cx + 1, cy - 3], [cx - 4, cy - 9], [cx - 11, cy - 2], [cx - 17, cy + 10]], HAIR, 5); });
+  v.fold(cx - 2, cy - 17, cx - 1, cy - 11, cx, cy - 4, 1, 0.5); v.fold(cx + 10, cy - 16, cx + 11, cy - 10, cx + 12, cy - 2, 1, 0.5);
+  const SB = v.mat('#e040b0', 'cloth'); v.part(() => { v.cap(cx - 22, cy - 9, cx - 2, cy - 17, 4, 4, SB); v.cap(cx - 2, cy - 17, cx + 21, cy - 12, 4, 4, SB); });
+  if (e >= 2) { const VZ = v.mat(mag, 'plastic'); v.poly([[cx - 5, cy - 4], [cx + 22, cy - 3], [cx + 21, cy + 7], [cx - 5, cy + 6]], VZ, 3); v.dline(cx - 2, cy - 2, cx + 8, cy - 2, '#ffd0f0'); }
+  // front arm bent down-right holding a lime stick angled up
+  const fa = r.wk >= 0 ? [0, 2, 0, -2][r.wk] : 0;
+  limb(v, [77, 74 + b], [85, 88 + b + fa], [91, 98 + b + fa], 6, 5, JK);
+  v.cap(80, 76 + b, 88, 92 + b + fa, 0.7, 0.7, STR);
+  const WB = v.mat('#e040b0', 'cloth'); v.cap(88, 94 + b + fa, 90, 96 + b + fa, 3.6, 3.6, WB);
+  v.cap(92, 100 + b + fa, 110 + e * 2, 76 + b + fa - (o.f % 2) - e * 2, 2.6, 2.6, G1);
+  hand(v, 92, 99 + b + fa, skin);
+  if (e >= 1) { star(v, 112 + e * 2, 73 + b + fa - e * 2, '#e8ffb0'); star(v, 33, 41 + b - r.sw * 2, '#ffc8f0'); }
 }
 
-// ---------------------------------------------------------------- WALL OF SOUND
+// ============================================================ WALL OF SOUND
 function wall(v: Vol, o: Pose) {
-  const e = o.evo ?? 0; const s = skel(o); const blink = false;
-  const orange = '#ff9a2a', gold = '#ffcf3a';
-  const PJ = v.mat(e >= 2 ? '#4a2a6e' : '#2e2840', 'cloth'), PANT = v.mat('#4a4232', 'cloth'), SK = v.mat('#e4b78c', 'skin'), BOOT = v.mat('#2a2230', 'plastic'), SOLE = v.mat('#14101a', 'rubber'), HAIR = v.mat(orange, 'hair');
-  const [hx, hy] = s.head;
-  if (e >= 1) { const CP = v.mat(e >= 2 ? '#2e1a40' : '#5a3a20', 'cloth'); v.poly([[40, 58 + s.b], [80, 58 + s.b], [74 - s.sway, 124], [26 - s.sway * 2, 124], [32, 84]], CP, 5); v.fold(46, 66, 38, 96, 32 - s.sway, 120, 2); v.fold(58, 66, 54, 98, 50 - s.sway, 120, 2); }
-  arm(v, s.shB, [40, 74 + s.b], [44, 86 + s.b], PJ, SK, 9, v.mat('#2a2230', 'cloth'));
-  const boot = (x: number, y: number) => { v.part(() => { v.poly([[x - 8, y - 10], [x + 5, y - 10], [x + 8, y - 2], [x + 15, y], [x + 16, y + 6], [x - 9, y + 6]], BOOT, 4); }); v.poly([[x - 10, y + 5], [x + 17, y + 5], [x + 17, y + 10], [x - 10, y + 10]], SOLE, 2); for (let i = 0; i < 3; i++) { v.dot(x - 3 + i * 3, y - 6 + i, '#c8b890'); } };
-  leg(v, s.hipB, s.kneeB, s.ankB, PANT, boot, 9);
-  leg(v, s.hipF, s.kneeF, s.ankF, PANT, boot, 9);
-  const PKT = v.mat('#5a5040', 'cloth'); v.poly([[s.kneeF[0] - 4, s.kneeF[1] - 4], [s.kneeF[0] + 6, s.kneeF[1] - 4], [s.kneeF[0] + 6, s.kneeF[1] + 4], [s.kneeF[0] - 4, s.kneeF[1] + 4]], PKT, 2);
-  // puffer jacket: wide shoulders, stacked quilted bands
-  v.part(() => {
-    v.ell(46, 62 + s.b, 12, 10, PJ); v.ell(78, 62 + s.b, 12, 10, PJ);
-    for (let i = 0; i < 4; i++) { const y = 62 + s.b + i * 8; v.cap(40 + i, y, 84 - i, y, 6, 6, PJ); }
-  });
-  const ZIP = v.mat(gold, 'metal'); v.cap(62, 56 + s.b, 62, 92 + s.b, 0.8, 0.8, ZIP);
-  const FUR = v.mat(orange, 'cloth'); v.ell(62, 55 + s.b, 17, 5, FUR, [0, -0.3]);
-  const CH = v.mat(gold, 'metal'); for (let i = 0; i <= 12; i++) v.ell(52 + i * 1.7, 58 + s.b + Math.sin((i / 12) * Math.PI) * 9, 1.4, 1.4, CH); v.ell(62, 70 + s.b, 4, 4, CH);
-  if (e >= 1) { const SD = v.mat('#d8d8e8', 'metal'); for (const [x, y] of [[38, 60], [42, 55], [48, 54], [76, 54], [82, 55], [86, 60]]) v.ell(x, y + s.b, 1.8, 1.8, SD); }
-  head(v, s, { iris: orange, brow: 'stern', mouth: 'smirk', skin: '#e4b78c', hideEyes: true }, blink);
-  v.part(() => { v.poly([[hx - 20, hy - 2], [hx - 19, hy - 30], [hx + 18, hy - 32], [hx + 20, hy - 8], [hx + 12, hy - 14], [hx - 2, hy - 12], [hx - 14, hy - 10]], HAIR, 5, [0, -0.1]); });
-  for (const dx of [-12, -4, 4, 12]) v.fold(hx + dx, hy - 29, hx + dx + 0.5, hy - 24, hx + dx, hy - 14, 1, 0.45);
-  const SB = v.mat('#7a4a2a', 'hair'); v.poly([[hx - 19, hy - 4], [hx - 14, hy - 4], [hx - 13, hy + 8], [hx - 18, hy + 6]], SB, 2);
-  const SG = v.mat('#16121e', 'plastic'); v.poly([[hx - 4, hy - 4], [hx + 21, hy - 5], [hx + 20, hy + 5], [hx + 12, hy + 6], [hx + 9, hy + 2], [hx + 6, hy + 6], [hx - 3, hy + 5]], SG, 3); v.cap(hx - 17, hy - 2, hx - 4, hy - 2, 1.2, 1.2, SG);
-  const RF = e >= 2 ? '#ff3ec8' : orange; v.dline(hx, hy - 2, hx + 4, hy - 2, RF); v.dline(hx + 1, hy, hx + 2, hy, RF); v.dline(hx + 12, hy - 2, hx + 16, hy - 3, RF);
-  if (e >= 2) { const CR = v.mat(gold, 'metal'); v.part(() => { v.poly([[hx - 16, hy - 30], [hx + 16, hy - 32], [hx + 16, hy - 27], [hx - 16, hy - 26]], CR, 2); for (const dx of [-12, 0, 12]) v.poly([[hx + dx - 4, hy - 28], [hx + dx, hy - 40], [hx + dx + 4, hy - 29]], CR, 2); }); v.ell(hx, hy - 31, 1.5, 1.5, v.mat('#ff3ec8', 'emit')); }
-  const fa = (o.walk ?? -1) >= 0 ? [0, 2, 0, -2][o.walk!] : 0;
-  arm(v, s.shF, [84, 72 + s.b + fa], [88, 80 + s.b + fa], PJ, SK, 9);
-  // speaker shield
-  const big = e >= 1 ? 3 : 0; const x = 80 - big, y = 46 + s.b + fa - big, w = 38 + big * 2, h = 62 + big * 2;
-  const RM = v.mat(gold, 'metal'), CAB = v.mat('#2a2238', 'plastic'), SUR = v.mat('#18141e', 'rubber'), CONE = v.mat('#3a3050', 'plastic'), DUST = v.mat('#bcb4d4', 'metal'), LED = v.mat(e >= 2 ? '#ff3ec8' : orange, 'emit');
-  v.poly([[x, y], [x + w, y], [x + w, y + h], [x, y + h]], RM, 3, [0.15, 0]);
-  v.poly([[x + 4, y + 4], [x + w - 4, y + 4], [x + w - 4, y + h - 4], [x + 4, y + h - 4]], CAB, 3);
-  for (let yy = y + 6; yy < y + h - 6; yy += 2) for (let xx = x + 6 + ((yy >> 1) % 2); xx < x + w - 6; xx += 2) v.dot(xx, yy, '#3e3454');
-  const cx = x + w / 2;
-  v.ell(cx, y + 20 + big / 2, 14 + big / 2, 14 + big / 2, SUR); v.ell(cx, y + 20 + big / 2, 10.5, 10.5, CONE, [0, 0], true); v.ell(cx, y + 20 + big / 2, 4, 4, DUST); v.ell(cx, y + 20 + big / 2, 1.5, 1.5, LED);
-  v.ell(cx, y + h - 17, 10, 10, SUR); v.ell(cx, y + h - 17, 7, 7, CONE, [0, 0], true); v.ell(cx, y + h - 17, 2.5, 2.5, DUST);
-  v.cap(x + 8, y + h - 6, x + w - 8, y + h - 6, 0.6, 0.6, LED);
-  for (const [bx, by] of [[x + 2, y + 2], [x + w - 3, y + 2], [x + 2, y + h - 3], [x + w - 3, y + h - 3]]) v.dot(bx, by, '#fff4c0');
+  const e = o.evo ?? 0, r = rig(o), ex = exprOf(o), b = r.b;
+  const skin = '#d8a47c', orange = '#ff8a1a', gold = '#ffc23a';
+  const PJ = v.mat(e >= 2 ? '#5a2c96' : '#2c2850', 'cloth'), PANT = v.mat('#6a6438', 'cloth'), HAIR = v.mat(orange, 'hair');
+  const cx = 60, cy = 40 + b + r.hb;
+  if (e >= 1) { const CP = v.mat(e >= 2 ? '#7a3ab8' : '#8a5a2a', 'cloth'); v.poly([[40, 72 + b], [70, 72 + b], [66 - r.sw, 152], [22 - r.sw * 2, 152], [28, 106]], CP, 5); for (const k of [0, 1, 2]) v.fold(42 + k * 7, 78 + b, 35 + k * 8, 112, 28 + k * 10 - r.sw, 148, 1, 0.7); }
+  limb(v, [42, 76 + b], [38, 92 + b], [42, 104 + b], 9, 7, PJ); hand(v, 43, 106 + b, skin, 5);
+  const lg = legs(v, r, [52, 106 + b], [70, 106 + b], PANT, 9, (x, y) => boot(v, x, y));
+  const PK = v.mat('#7a7444', 'cloth'); v.poly([[lg.kB[0] - 8, lg.kB[1] - 8], [lg.kB[0] + 1, lg.kB[1] - 8], [lg.kB[0] + 1, lg.kB[1]], [lg.kB[0] - 8, lg.kB[1]]], PK, 2);
+  // puffer: hood behind, wide shoulders, stacked quilted bands
+  v.part(() => { v.ell(58, 68 + b, 20, 8, PJ, [0, -0.3]); v.ell(42, 76 + b, 12, 10, PJ); v.ell(76, 76 + b, 12, 10, PJ); for (let i = 0; i < 4; i++) { const y = 78 + b + i * 8; v.cap(36 + i, y, 82 - i, y, 6.5, 6.5, PJ); } });
+  const ZP = v.mat(gold, 'metal'); v.cap(60, 70 + b, 60, 110 + b, 0.9, 0.9, ZP);
+  const CH = v.mat(gold, 'metal'); for (let i = 0; i <= 12; i++) { const t = i / 12; v.ell(49 + i * 1.8, 71 + b + Math.sin(t * Math.PI) * 11, 1.8, 1.6, CH); } v.ell(60, 86 + b, 5, 5, CH); v.ell(60, 86 + b, 2.5, 2.5, v.mat('#fff0b0', 'metal'));
+  if (e >= 1) { const SD = v.mat('#e0e0f0', 'metal'); for (const [x, y] of [[34, 74], [38, 69], [44, 67]]) v.ell(x, y + b, 1.8, 1.8, SD); }
+  // head: tall flat-top, shades, stern frown
+  headShape(v, cx, cy, skin);
+  face(v, cx, cy, { skin, iris: orange, brow: 'stern', mouth: 'flat', hideEyes: true, blush: false }, ex);
+  v.part(() => { v.poly([[cx - 21, cy + 2], [cx - 21, cy - 34], [cx + 19, cy - 36], [cx + 21, cy - 6], [cx + 14, cy - 12], [cx, cy - 10], [cx - 14, cy - 9]], HAIR, 5, [0, -0.1]); });
+  for (const dx of [-14, -7, 0, 7, 14]) v.fold(cx + dx, cy - 35, cx + dx + 0.5, cy - 24, cx + dx, cy - 11, 1, 0.45);
+  for (let x = cx - 20; x <= cx + 18; x += 4) v.poly([[x, cy - 34], [x + 2, cy - 39], [x + 4, cy - 34]], HAIR, 1);
+  const SG = v.mat('#14101c', 'plastic'), LENS = v.mat('#8a3ae8', 'plastic');
+  v.part(() => { v.poly([[cx - 6, cy - 4], [cx + 23, cy - 5], [cx + 22, cy + 7], [cx + 13, cy + 8], [cx + 10, cy + 3], [cx + 7, cy + 8], [cx - 5, cy + 7]], SG, 2); v.cap(cx - 19, cy - 2, cx - 6, cy - 2, 1.3, 1.3, SG); });
+  v.poly([[cx - 4, cy - 2], [cx + 8, cy - 3], [cx + 7, cy + 6], [cx - 3, cy + 5]], LENS, 2); v.poly([[cx + 12, cy - 3], [cx + 21, cy - 3], [cx + 20, cy + 6], [cx + 13, cy + 6]], LENS, 2);
+  v.dline(cx - 2, cy - 1, cx + 3, cy - 1, '#f0d0ff'); v.dline(cx + 14, cy - 2, cx + 17, cy - 2, '#f0d0ff');
+  if (e >= 2) { const CR = v.mat(gold, 'metal'); v.part(() => { v.poly([[cx - 20, cy - 36], [cx + 19, cy - 38], [cx + 19, cy - 31], [cx - 20, cy - 30]], CR, 2); for (const dx of [-15, -5, 5, 15]) v.poly([[cx + dx - 4, cy - 34], [cx + dx, cy - 46], [cx + dx + 4, cy - 35]], CR, 2); }); v.ell(cx, cy - 33, 1.8, 1.8, v.mat('#ff3ec8', 'plastic')); }
+  // front arm behind the shield, shield held upright
+  const fa = r.wk >= 0 ? [0, 2, 0, -2][r.wk] : 0;
+  limb(v, [76, 76 + b], [84, 90 + b + fa], [90, 96 + b + fa], 9, 7, PJ);
+  const big = e * 2; speaker(v, 80 - big / 2, 68 + b + fa - big, 42 + big, 74 + big, gold, e >= 2 ? '#ff3ec8' : '#ff8a1a', 2);
 }
 
-const RIM: Record<string, string[]> = { bass: ['#ff5ad0', '#ff3ec8', '#e070ff'], flow: ['#5aeaff', '#3ae8ff', '#c8f8ff'], tempo: ['#c8ff5a', '#b8ff3a', '#3affd8'], wall: ['#ffaa4a', '#ff9a2a', '#ff5ad0'] };
-const AURAS: Record<string, string[]> = { bass: ['', '#ff3ec8', '#d070ff'], flow: ['', '#3ae8ff', '#b8f6ff'], tempo: ['', '#b8ff3a', '#e8ff9a'], wall: ['', '#ff9a2a', '#ffcf3a'] };
+const RIM: Record<string, string[]> = { bass: ['#ff7ad8', '#ff5ad0', '#e080ff'], flow: ['#7aeaff', '#5ae0ff', '#fff0b0'], tempo: ['#c8ff6a', '#b8ff4a', '#6affd8'], wall: ['#ffb060', '#ffa040', '#d080ff'] };
+const AURAS: Record<string, string[]> = { bass: ['', '#ff3ec8', '#d070ff'], flow: ['', '#3ae8ff', '#fff0b0'], tempo: ['', '#b8ff3a', '#6affd8'], wall: ['', '#ff9a2a', '#b070ff'] };
+const SX: Record<string, number> = { bass: 1.12, flow: 1.12, tempo: 1.12, wall: 1.14 };
 const FN: Record<string, (v: Vol, o: Pose) => void> = { bass, flow, tempo, wall };
 const def = (id: string): SpriteDef => ({
   w: HW, h: HH, res: 2, draw: () => {}, aura: o => AURAS[id][o.evo ?? 0] || null,
-  render: (o, flash) => { const v = new Vol(HW, HH); FN[id](v, o); return v.render({ rim: RIM[id][o.evo ?? 0], flash }); },
+  render: (o, flash) => { const v = new Vol(HW, HH); v.sx = SX[id]; v.ox = 60; FN[id](v, o); return v.render({ rim: RIM[id][o.evo ?? 0], flash }); },
 });
 export const HERO_SPRITES: Record<string, SpriteDef> = { bass: def('bass'), flow: def('flow'), tempo: def('tempo'), wall: def('wall') };

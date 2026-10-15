@@ -1,6 +1,6 @@
 // Every character is drawn procedurally with the Pix rasterizer. One function per hero/enemy.
 import { Pix } from './pix';
-export interface Pose { f: number; walk?: number; evo?: number; phase?: number }
+export interface Pose { f: number; walk?: number; evo?: number; phase?: number; expr?: 'neutral' | 'shout' | 'hurt' }
 type Draw = (p: Pix, o: Pose) => void;
 export interface SpriteDef { w: number; h: number; draw: Draw; aura?: (o: Pose) => string | null; res?: number; render?: (o: Pose, flash: boolean) => HTMLCanvasElement }
 

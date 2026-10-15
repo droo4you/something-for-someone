@@ -6,7 +6,7 @@ import { tone, mix, hex2rgb } from './pix';
 export type Kind = 'skin' | 'cloth' | 'metal' | 'plastic' | 'hair' | 'rubber' | 'emit';
 interface M { ramp: string[]; kind: Kind; base: string }
 type V3 = [number, number, number];
-const N = 10;
+const N = 14;
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map(v => v / 16 - 0.47);
 const norm = (v: V3): V3 => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
 const L = norm([-0.55, -0.7, 0.55]); const H = norm([L[0], L[1], L[2] + 1]);
@@ -21,6 +21,9 @@ export class Vol {
   mats: M[] = []; cols: string[] = [];
   m: Int16Array; g: Int16Array; ord: Int32Array; nx: Float32Array; ny: Float32Array; nz: Float32Array; dc: Int16Array;
   o = 0; grp = 0; private inPart = false;
+  /** Horizontal stretch around ox (makes figures chunkier without redrawing them). */
+  sx = 1; ox = 0;
+  private X(x: number) { return this.ox + (x - this.ox) * this.sx; }
   constructor(public w: number, public h: number) {
     const n = w * h; this.m = new Int16Array(n).fill(-1); this.g = new Int16Array(n); this.ord = new Int32Array(n);
     this.nx = new Float32Array(n); this.ny = new Float32Array(n); this.nz = new Float32Array(n); this.dc = new Int16Array(n).fill(-1);
@@ -34,7 +37,7 @@ export class Vol {
     this.m[i] = mi; this.g[i] = this.grp; this.ord[i] = this.o; this.nx[i] = v[0]; this.ny[i] = v[1]; this.nz[i] = v[2]; this.dc[i] = -1;
   }
   ell(cx: number, cy: number, rx: number, ry: number, mi: number, tilt: [number, number] = [0, 0], concave = false) {
-    this.next();
+    this.next(); cx = this.X(cx); rx *= this.sx;
     for (let y = Math.floor(cy - ry - 1); y <= Math.ceil(cy + ry + 1); y++) for (let x = Math.floor(cx - rx - 1); x <= Math.ceil(cx + rx + 1); x++) {
       const dx = (x + 0.5 - cx) / (rx + 0.25), dy = (y + 0.5 - cy) / (ry + 0.25); const d2 = dx * dx + dy * dy; if (d2 > 1) continue;
       const nz = Math.sqrt(1 - d2); const s = concave ? -0.8 : 1; this.set(x, y, mi, [dx * s + tilt[0], dy * s + tilt[1], nz + 0.15]);
@@ -42,7 +45,7 @@ export class Vol {
   }
   /** Tapered capsule (limbs, tubes): cylinder normals around the axis. */
   cap(x0: number, y0: number, x1: number, y1: number, r0: number, r1: number, mi: number, tilt: [number, number] = [0, 0]) {
-    this.next(); const vx = x1 - x0, vy = y1 - y0, ll = vx * vx + vy * vy || 1; const R = Math.max(r0, r1);
+    this.next(); x0 = this.X(x0); x1 = this.X(x1); const k = (1 + this.sx) / 2; r0 *= k; r1 *= k; const vx = x1 - x0, vy = y1 - y0, ll = vx * vx + vy * vy || 1; const R = Math.max(r0, r1);
     for (let y = Math.floor(Math.min(y0, y1) - R - 1); y <= Math.ceil(Math.max(y0, y1) + R + 1); y++) for (let x = Math.floor(Math.min(x0, x1) - R - 1); x <= Math.ceil(Math.max(x0, x1) + R + 1); x++) {
       const px = x + 0.5, py = y + 0.5; let t = ((px - x0) * vx + (py - y0) * vy) / ll; t = Math.max(0, Math.min(1, t));
       const r = r0 + (r1 - r0) * t; const dx = px - (x0 + vx * t), dy = py - (y0 + vy * t); const d = Math.hypot(dx, dy) / (r + 0.25); if (d > 1) continue;
@@ -51,7 +54,7 @@ export class Vol {
   }
   /** Polygon with a rounded bevel of `bev` px: flat face (optionally tilted) and rounded edges. */
   poly(pts: number[][], mi: number, bev = 4, tilt: [number, number] = [0, 0]) {
-    this.next(); const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+    this.next(); pts = pts.map(p => [this.X(p[0]), p[1]]); const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
     for (let y = Math.floor(Math.min(...ys)); y <= Math.ceil(Math.max(...ys)); y++) for (let x = Math.floor(Math.min(...xs)); x <= Math.ceil(Math.max(...xs)); x++) {
       const px = x + 0.5, py = y + 0.5; let inside = false, best = 1e9, bnx = 0, bny = 0;
       for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
@@ -67,6 +70,7 @@ export class Vol {
   }
   /** Cloth fold / crease: bends existing normals across a curve so one side catches light and the other falls into shadow. */
   fold(x0: number, y0: number, cx: number, cy: number, x1: number, y1: number, w = 2, str = 0.7) {
+    x0 = this.X(x0); cx = this.X(cx); x1 = this.X(x1);
     const n = 40; const seen = new Set<number>();
     for (let i = 0; i <= n; i++) {
       const t = i / n, a = (1 - t) * (1 - t), b = 2 * (1 - t) * t, c = t * t; const x = a * x0 + b * cx + c * x1, y = a * y0 + b * cy + c * y1;
@@ -76,9 +80,10 @@ export class Vol {
     }
   }
   /** Unlit detail pixel (eyes, logos, stitching, LEDs). */
-  dot(x: number, y: number, col: string) { x = Math.round(x); y = Math.round(y); if (x < 0 || y < 0 || x >= this.w || y >= this.h) return; const i = y * this.w + x; let k = this.cols.indexOf(col); if (k < 0) { this.cols.push(col); k = this.cols.length - 1; } if (this.m[i] < 0) { this.m[i] = 0; this.g[i] = this.grp; this.ord[i] = this.o; this.nz[i] = 1; } this.dc[i] = k; }
-  drect(x: number, y: number, w: number, h: number, col: string) { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) this.dot(x + i, y + j, col); }
-  dline(x0: number, y0: number, x1: number, y1: number, col: string) { const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0), 1); for (let i = 0; i <= n; i++) this.dot(x0 + ((x1 - x0) * i) / n, y0 + ((y1 - y0) * i) / n, col); }
+  dot(x: number, y: number, col: string) { this.rawDot(this.X(x), y, col); }
+  private rawDot(x: number, y: number, col: string) { x = Math.round(x); y = Math.round(y); if (x < 0 || y < 0 || x >= this.w || y >= this.h) return; const i = y * this.w + x; let k = this.cols.indexOf(col); if (k < 0) { this.cols.push(col); k = this.cols.length - 1; } if (this.m[i] < 0) { this.m[i] = 0; this.g[i] = this.grp; this.ord[i] = this.o; this.nz[i] = 1; } this.dc[i] = k; }
+  drect(x: number, y: number, w: number, h: number, col: string) { const x0 = Math.round(this.X(x)), x1 = Math.round(this.X(x + w)); for (let j = 0; j < h; j++) for (let i = x0; i < Math.max(x0 + 1, x1); i++) this.rawDot(i, y + j, col); }
+  dline(x0: number, y0: number, x1: number, y1: number, col: string) { x0 = this.X(x0); x1 = this.X(x1); const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0), 1); for (let i = 0; i <= n; i++) this.rawDot(x0 + ((x1 - x0) * i) / n, y0 + ((y1 - y0) * i) / n, col); }
   has(x: number, y: number) { return x >= 0 && y >= 0 && x < this.w && y < this.h && this.m[y * this.w + x] >= 0; }
 
   render(opts: { rim?: string; flash?: boolean } = {}): HTMLCanvasElement {
@@ -101,7 +106,7 @@ export class Vol {
       let col = mt.ramp[t];
       if ((mt.kind === 'metal' && nh ** 40 > 0.6) || (mt.kind === 'plastic' && nh ** 60 > 0.55)) col = '#ffffff';
       const rimAmt = Math.max(0, nx) * (1 - Math.max(0, nz)) * 1.6 + Math.max(0, nx) * 0.15;
-      if (mt.kind !== 'emit' && rimAmt > 0.62) col = mix(col, rim, mt.kind === 'metal' ? 0.7 : 0.55);
+      if (mt.kind !== 'emit' && rimAmt > 0.78) col = mix(col, rim, mt.kind === 'metal' ? 0.55 : 0.38);
       idxA[i] = t; out[i] = col;
     }
     // contour lines where a later (front) part overlaps an earlier one
@@ -110,7 +115,7 @@ export class Vol {
       const i = y * w + x; if (idxA[i] < 0) continue; const mt = this.mats[this.m[i]]; if (mt.kind === 'emit') continue;
       for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const X = x + dx, Y = y + dy; if (X < 0 || Y < 0 || X >= w || Y >= h) continue; const j = Y * w + X;
         if (this.m[j] < 0 || this.g[j] === this.g[i] || this.ord[j] <= this.ord[i] || this.dc[j] >= 0) continue;
-        final[i] = mix(mt.ramp[Math.max(0, idxA[i] - 4)], '#140a20', 0.35); break; }
+        final[i] = mix(mt.ramp[Math.max(0, idxA[i] - 5)], '#140a20', 0.4); break; }
     }
     // selective outline: lit side gets a softer, coloured outline; shadow side a deep one
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
@@ -118,7 +123,7 @@ export class Vol {
       for (const [dx, dy] of [[0, 1], [-1, 0], [1, 0], [0, -1]]) { const X = x + dx, Y = y + dy; if (X >= 0 && Y >= 0 && X < w && Y < h && this.m[Y * w + X] >= 0) { nb = Y * w + X; break; } }
       if (nb < 0) continue;
       if (this.dc[nb] >= 0 || this.m[nb] < 0) { final[i] = '#140a20'; continue; }
-      const mt = this.mats[this.m[nb]]; const lit = idxA[nb] >= 6;
+      const mt = this.mats[this.m[nb]]; const lit = idxA[nb] >= 9;
       final[i] = mt.kind === 'emit' ? mix(mt.base, '#140a20', 0.45) : mix(mt.ramp[lit ? 1 : 0], '#0c0614', lit ? 0.35 : 0.6);
     }
     for (let i = 0; i < w * h; i++) { const cc = final[i]; if (!cc) continue; const [r, gg, b] = opts.flash ? [255, 255, 255] : hex2rgb(cc); d[i * 4] = r; d[i * 4 + 1] = gg; d[i * 4 + 2] = b; d[i * 4 + 3] = 255; }
