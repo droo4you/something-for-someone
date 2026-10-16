@@ -17,6 +17,7 @@ import { Scene, THEMES } from './ui/scene';
 import { installFrames } from './ui/frames';
 import { statusIcon, intentIcon, miscIcon, medallion } from './ui/icons';
 import { tone, mix } from './ui/pix';
+import { drawFestMap, landmark } from './ui/festmap';
 import { sfx, setMuted } from './ui/audio';
 import type { EventDef, OwnedSkill, Element as El } from './types';
 
@@ -205,46 +206,8 @@ const INTRO_LINES = [
 // ---------- Map ----------
 const NODE_LABEL: Record<R.NodeType, string> = { battle: 'Drained', elite: 'Elite', campfire: 'Water Station', merchant: 'Food Truck', event: 'Crew Sighting', treasure: 'Lost & Found', shrine: 'Totem Shrine', boss: 'DJ Boss' };
 let MAP_W = 820; const MAP_H = 340, MS = 2; // css size and pixel scale
-function drawMap(cv: HTMLCanvasElement, r: R.Run) {
-  const w = MAP_W / MS, h = MAP_H / MS; cv.width = w; cv.height = h; cv.style.width = MAP_W + 'px'; cv.style.height = MAP_H + 'px';
-  const g = cv.getContext('2d')!; const th = themeFor(r.depth); const rng = new RNG(r.seed + r.depth);
-  const G = th.ground, G2 = th.ground2; const L = th.lights;
-  g.fillStyle = G; g.fillRect(0, 0, w, h);
-  for (let i = 0; i < w * h / 12; i++) { g.fillStyle = rng.chance(0.5) ? tone(G, 0.15) : G2; g.fillRect(rng.int(0, w), rng.int(0, h), 1, 1); }
-  // festival grid lines (like a site plan)
-  g.fillStyle = tone(G, 0.08); for (let x = 0; x < w; x += 24) g.fillRect(x, 0, 1, h); for (let y = 0; y < h; y += 24) g.fillRect(0, y, w, 1);
-  const xOf = (c: number) => 20 + (c * (w - 40)) / (R.STOPS - 1); const yOf = (y: number) => 14 + y * (h - 28);
-  // paths: neon cable walkways
-  const stamp = (x0: number, y0: number, x1: number, y1: number, lit: boolean) => {
-    const n = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 2);
-    for (let i = 0; i <= n; i++) { const x = Math.round(x0 + ((x1 - x0) * i) / n), y = Math.round(y0 + ((y1 - y0) * i) / n);
-      g.fillStyle = '#06040e'; g.fillRect(x - 2, y - 1, 5, 4);
-      g.fillStyle = lit ? th.accent : tone(G, 0.3); g.fillRect(x - 1, y, 3, 2);
-      if (i % 3 === 0) { g.fillStyle = lit ? '#ffffff' : L[i % L.length]; g.globalAlpha = lit ? 1 : 0.55; g.fillRect(x, y, 1, 1); g.globalAlpha = 1; } }
-  };
-  r.map.forEach((col, c) => col.forEach(n => n.next.forEach(j => { const m = r.map[c + 1][j]; const lit = !!r.pos && r.pos.col === c && r.pos.row === n.row; stamp(xOf(c), yOf(n.y), xOf(c + 1), yOf(m.y), lit); })));
-  const nearNode = (x: number, y: number) => r.map.flat().some(n => Math.hypot(xOf(n.col) - x, yOf(n.y) - y) < 16);
-  const dark = tone(th.mid, -0.2), lite = tone(th.mid, 0.4);
-  for (let i = 0; i < 80; i++) {
-    const x = rng.int(4, w - 4), y = rng.int(8, h - 4); if (nearNode(x, y)) continue;
-    const k = rng.next(); const c = L[rng.int(0, L.length - 1)];
-    if (k < 0.25) { // pop-up tent
-      g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(x - 5, y + 1, 11, 1); g.fillStyle = tone(c, -0.35); g.beginPath(); g.moveTo(x - 5, y); g.lineTo(x, y - 6); g.lineTo(x + 5, y); g.fill(); g.fillStyle = c; g.fillRect(x, y - 6, 1, 1);
-    } else if (k < 0.45) { // light pole
-      g.fillStyle = dark; g.fillRect(x, y - 9, 1, 9); g.fillStyle = c; g.fillRect(x - 1, y - 10, 3, 2); g.globalAlpha = 0.18; g.fillRect(x - 4, y - 2, 9, 3); g.globalAlpha = 1;
-    } else if (k < 0.6 && th.deco === 'forest') { // tree with fairy lights
-      g.fillStyle = th.mid; g.fillRect(x - 3, y - 7, 7, 5); g.fillRect(x - 2, y - 8, 5, 7); g.fillStyle = lite; g.fillRect(x - 2, y - 7, 2, 1); g.fillStyle = c; g.fillRect(x + 1, y - 5, 1, 1); g.fillRect(x - 2, y - 4, 1, 1); g.fillStyle = dark; g.fillRect(x, y - 1, 1, 2);
-    } else if (k < 0.75) { // crowd cluster
-      for (let j = 0; j < 5; j++) { g.fillStyle = tone(th.mid, -0.3); g.fillRect(x + rng.int(-4, 4), y + rng.int(-2, 2), 1, 2); } g.fillStyle = c; g.fillRect(x + rng.int(-3, 3), y - 3, 1, 1);
-    } else if (k < 0.88) { // glowstick on the ground
-      g.fillStyle = c; g.fillRect(x, y, 3, 1); g.globalAlpha = 0.25; g.fillRect(x - 1, y - 1, 5, 3); g.globalAlpha = 1;
-    } else { // speaker
-      g.fillStyle = '#0a0818'; g.fillRect(x - 2, y - 5, 5, 6); g.fillStyle = tone(th.mid, 0.3); g.fillRect(x - 1, y - 4, 3, 2); g.fillRect(x - 1, y - 1, 3, 1);
-    }
-  }
-  g.fillStyle = 'rgba(6,4,14,.45)'; g.fillRect(0, 0, w, 2); g.fillRect(0, h - 2, w, 2); g.fillRect(0, 0, 2, h); g.fillRect(w - 2, 0, 2, h);
-  return { xOf: (c: number) => xOf(c) * MS, yOf: (y: number) => yOf(y) * MS };
-}
+function drawMap(cv: HTMLCanvasElement, r: R.Run) { return drawFestMap(cv, r.map, r.pos, themeFor(r.depth), hashSeed(r.seed + r.depth), MAP_W, MAP_H, MS, R.STOPS); }
+const hashSeed = (s: string) => { let h = 2166136261; for (const ch of s) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); return h >>> 0; };
 function mapScreen() {
   const r = run!; const reg = R.region(r.depth);
   const avail = R.reachable(r);
@@ -254,7 +217,7 @@ function mapScreen() {
     <div class="panel dark row map-head"><div class="grow"><h2 style="color:${reg.accent};margin:0">${esc(R.regionName(r.depth))}</h2>
       <div class="tiny muted">Stop ${r.stop}/${R.STOPS} &middot; Seed ${esc(r.seed)} &middot; pick a glowing stop</div></div><div id="map_h"></div></div>
     <div class="mapwrap"><div class="map"><canvas class="px" id="mapcv"></canvas><div id="nodes"></div></div></div>
-    <div class="legend">${(Object.keys(NODE_LABEL) as R.NodeType[]).map(t => `<span class="row"><img class="px" src="${medallion(t, 'avail')}" width="20" height="20" alt=""> ${NODE_LABEL[t]}</span>`).join('')}</div>
+    <div class="legend">${(Object.keys(NODE_LABEL) as R.NodeType[]).map(t => `<span class="row"><img class="px" src="${landmark(t, 'avail')}" width="24" height="24" alt=""> ${NODE_LABEL[t]}</span>`).join('')}</div>
     <div class="panel"><div class="small"><b>Moves:</b> ${r.skills.map(skillLine).join(' / ')}</div><div style="margin-top:6px">${relicChips(r.relics) || '<span class="tiny muted">No gear yet</span>'}</div></div>`,
     acts, e => { const k = parseInt(e.key); if (k >= 1 && k <= avail.length) enterNode(avail[k - 1]); });
   const wrapEl = app.querySelector<HTMLElement>('.mapwrap')!; MAP_W = Math.max(820, wrapEl.clientWidth - (wrapEl.clientWidth % 2)); app.querySelector<HTMLElement>('.map')!.style.width = MAP_W + 'px';
@@ -263,7 +226,7 @@ function mapScreen() {
   nodesEl.innerHTML = r.map.flat().map(n => {
     const isAvail = avail.includes(n); const cur = r.pos && r.pos.col === n.col && r.pos.row === n.row; const done = r.pos ? n.col < r.pos.col || (n.col === r.pos.col && !cur) : false;
     const st = cur ? 'cur' : isAvail ? 'avail' : done ? 'done' : 'locked'; const sz = n.type === 'boss' ? 64 : 48;
-    return `<button class="node ${st} ${n.type}" style="left:${pos.xOf(n.col)}px;top:${pos.yOf(n.y)}px" ${isAvail ? `data-a="n_${n.col}_${n.row}"` : 'disabled'} title="${NODE_LABEL[n.type]}"><img class="px" src="${medallion(n.type, st as any)}" width="${sz}" height="${sz}" alt="${NODE_LABEL[n.type]}"></button>`;
+    return `<button class="node ${st} ${n.type}" style="left:${pos.xOf(n.col)}px;top:${pos.yOf(n.y)}px" ${isAvail ? `data-a="n_${n.col}_${n.row}"` : 'disabled'} title="${NODE_LABEL[n.type]}"><img class="px" src="${landmark(n.type, st as any)}" width="${sz}" height="${sz}" alt="${NODE_LABEL[n.type]}"></button>`;
   }).join('') + (r.pos ? `<div class="map-hero" style="left:${pos.xOf(r.pos.col)}px;top:${pos.yOf(r.map[r.pos.col][r.pos.row].y)}px"></div>` : `<div class="map-hero" style="left:${pos.xOf(0) - 34}px;top:${pos.yOf(0.5)}px"></div>`);
   bindIn(nodesEl, acts);
   const mh = app.querySelector('.map-hero'); if (mh) mh.appendChild(animSprite(heroFramesLo(r.heroId, r.evo), 1).el);
