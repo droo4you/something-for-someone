@@ -127,12 +127,7 @@ def flow1(e):
     # haori blue -> violet (bright cyan hair/highlights stay): dominant colour change
     e.swap(e.pick(205, 235, smin=0.6, vmax=0.75), ['#2a1060', '#4a24a0', '#7a48e0'])
     C0, C1, C2, C3 = e.c('#0e4a70'), e.c('#1e9ad0'), e.c('#4dd4de'), e.c('#ece9ec')
-    # two floating sleeve ribbons trailing behind (silhouette change)
-    for off, x_end in [(0, 14), (8, 26)]:
-        pts = [(46, 100 + off), (34, 110 + off), (x_end + 8, 124 + off), (x_end, 142 + off)]
-        for a, b in zip(pts, pts[1:]): e.line(a, b, C1, 6, behind=True)
-        for a, b in zip(pts, pts[1:]): e.line(a, b, C2, 4, behind=True)
-        for a, b in zip(pts[:2], pts[1:3]): e.line((a[0], a[1] - 1), (b[0], b[1] - 1), C3, 1, behind=True)
+    # sleeve ribbons are drawn (tapered, sinuous) by hero_polish.ribbon
     # anime 'angel ring' highlight band across the hair
     for x in range(56, 82):
         y = 39 + int(round(((x - 69) / 13) ** 2 * 3))
@@ -141,26 +136,34 @@ def flow1(e):
 EVOS = {('tempo', 1): tempo1, ('wall', 1): wall1, ('flow', 1): flow1}
 
 def main():
+    import hero_polish as HP
+    from scipy import ndimage as nd
     d = json.load(open(IN)); W, H = d['w'], d['h']; N = W * H
     for hid, evs in d['heroes'].items():
+        base0 = unrle(evs[0]['body'], N).reshape(H, W) > 0; ref = None
         for k, ev in enumerate(evs):
-            fn = EVOS.get((hid, k))
-            if not fn: continue
+            fn = EVOS.get((hid, k)) or (lambda e: None)
             body = unrle(ev['body'], N).reshape(H, W); add = unrle(ev['addon'], N).reshape(H, W) if ev['addon'] else np.zeros((H, W), np.uint8)
             full = np.where(add > 0, add, body); reg = body > 0
             def run(m): e = Ed(m, ev['pal']); fn(e); return e
-            e = run(full); new = e.m
-            # keep the body/add-on split: pixels inside the old body region stay body, anything new outside is add-on
-            from scipy import ndimage as nd
-            base0 = unrle(evs[0]['body'], N).reshape(H, W) > 0; R = nd.binary_dilation(base0, iterations=2) | reg
+            e = run(full)
+            p, _ = HP.apply(hid, k, e.m, e.pal, d['gy'], ref)
+            if k == 0: ref = HP.rgb(p.m, p.pal)
+            crown = HP.crown(p, 72, 40) if (hid, k) == ('wall', 2) else np.zeros((H, W), bool)
+            new = p.m
+            # body/add-on split: pixels inside the old body region stay body, new pixels outside (and the crown) are add-on
+            R = (nd.binary_dilation(base0, iterations=2) | reg) & ~crown
             ev['body'] = rle(np.where(R, new, 0).astype(np.uint8)); a2 = np.where(R, 0, new).astype(np.uint8)
             ev['addon'] = rle(a2) if a2.any() else None
-            for name, p in ev['expr'].items():
-                t = full.copy(); t[p['y']:p['y'] + p['h'], p['x']:p['x'] + p['w']] = unrle(p['m'], p['w'] * p['h']).reshape(p['h'], p['w'])
-                p['m'] = rle(run(t).m[p['y']:p['y'] + p['h'], p['x']:p['x'] + p['w']])
-            ev['pal'] = e.pal
-            used = len(np.unique(new)) - 1
-            print(f'{hid} evo{k}: {used} colours in neutral frame, palette {len(e.pal)}')
+            for name, pt in ev['expr'].items():
+                t = full.copy(); t[pt['y']:pt['y'] + pt['h'], pt['x']:pt['x'] + pt['w']] = unrle(pt['m'], pt['w'] * pt['h']).reshape(pt['h'], pt['w'])
+                te = run(t); q = HP.P(new, p.pal)  # start from the polished neutral, swap in the expression region
+                q.m[pt['y']:pt['y'] + pt['h'], pt['x']:pt['x'] + pt['w']] = te.m[pt['y']:pt['y'] + pt['h'], pt['x']:pt['x'] + pt['w']]
+                q2, _ = HP.apply(hid, k, q.m, p.pal, d['gy'], ref, mode=name)
+                if (hid, k) == ('wall', 2): q2.m[crown] = new[crown]
+                p.pal = q2.pal; pt['m'] = rle(q2.m[pt['y']:pt['y'] + pt['h'], pt['x']:pt['x'] + pt['w']])
+            ev['pal'] = p.pal
+            print(f'{hid} evo{k}: {len(np.unique(new)) - 1} colours in neutral frame, palette {len(p.pal)}')
     json.dump(d, open(OUT, 'w')); print('wrote', OUT, os.path.getsize(OUT))
 
 if __name__ == '__main__': main()

@@ -33,6 +33,15 @@ function render(id: string, o: Pose, flash: boolean): HTMLCanvasElement {
   const bob = walking ? [0, 1, 0, 1][o.walk! % 4] : 0;          // whole-body step bob
   const breath = walking ? 0 : [0, 1, 1, 0][f];                  // upper body settles on the idle beat
   const sway = [0, 0, -1, 0][f];                                 // add-ons (capes) lag a pixel
+  // limb motion: on the walk cycle each foot lifts 2px in turn and the torso rocks a pixel with the step;
+  // on idle the head lags the breath by a frame so the neck/shoulders read as moving separately.
+  const split = footSplit(ev, body), FOOT = D.gy - 20, HEAD = HIP - 44;
+  const wf = walking ? o.walk! % 4 : 0;
+  const liftL = walking ? [2, 0, 0, 0][wf] : 0, liftR = walking ? [0, 0, 2, 0][wf] : 0;
+  const rock = walking ? [1, 0, -1, 0][wf] : 0;
+  const headLag = walking ? 0 : [0, 0, 1, 1][f];
+  const off = (x: number, y: number) => y >= FOOT ? -(x < split ? liftL : liftR) : (y < HEAD ? headLag : 0);
+  const ox = (y: number) => (y < HIP ? rock : 0);
   const lut = ev.pal.map(rgb);
   const c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d')!;
   const img = g.createImageData(W, H); const d = img.data;
@@ -42,14 +51,22 @@ function render(id: string, o: Pose, flash: boolean): HTMLCanvasElement {
     d[k + 3] = 255;
   };
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    if (add) { const a = add[y * W + x]; if (a) put(x + (y > HIP ? sway : 0), y + bob + (y < HIP ? breath : 0), a); }
+    if (add) { const a = add[y * W + x]; if (a) put(x + (y > HIP ? sway : 0) + ox(y), y + bob + (y < HIP ? breath : 0) + off(x, y), a); }
   }
   for (let y = 0; y < H; y++) {
     const dy = bob + (y < HIP ? breath : 0);
-    for (let x = 0; x < W; x++) put(x, y + dy, body[y * W + x]);
-    if (breath && y === HIP - 1) for (let x = 0; x < W; x++) { const v = body[HIP * W + x]; if (v && !body[(HIP - 1) * W + x]) put(x, HIP + bob, v); }
+    for (let x = 0; x < W; x++) put(x + ox(y), y + dy + off(x, y), body[y * W + x]);
+    if (breath && y === HIP - 1) for (let x = 0; x < W; x++) { const v = body[HIP * W + x]; if (v && !body[(HIP - 1) * W + x]) put(x + ox(HIP), HIP + bob, v); }
   }
   g.putImageData(img, 0, 0); return c;
+}
+/** Column between the two feet (fewest solid pixels near the floor), cached per evo map. */
+const splits = new Map<string, number>();
+function footSplit(ev: Evo, body: Uint8Array): number {
+  let s = splits.get(ev.body); if (s != null) return s;
+  let best = HW / 2, bc = 1e9;
+  for (let x = 40; x < 96; x++) { let c = 0; for (let y = D.gy - 8; y <= D.gy; y++) if (body[y * HW + x]) c++; if (c < bc || (c === bc && Math.abs(x - 66) < Math.abs(best - 66))) { bc = c; best = x; } }
+  splits.set(ev.body, best); return best;
 }
 const def = (id: string): SpriteDef => ({ w: HW, h: HH, res: 2, draw: () => {}, aura: o => AURAS[id][o.evo ?? 0] || null, render: (o, flash) => render(id, o, flash) });
 const AURAS: Record<string, string[]> = { bass: ['', '#ff3ec8', '#d070ff'], flow: ['', '#3ae8ff', '#fff0b0'], tempo: ['', '#b8ff3a', '#6affd8'], wall: ['', '#ff9a2a', '#b070ff'] };
