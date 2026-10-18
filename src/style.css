@@ -212,3 +212,17 @@ input { font-family: inherit; font-size: 10px; padding: 8px; border: 0; box-shad
 .help .dmgf { color: #ffe066; }
 .help-st > div { margin: 4px 0; }
 .help-st .row { flex-wrap: nowrap; } .help-st .row > :first-child { flex-shrink: 0; margin-top: 1px; }
+
+/* ---- boss beat finale ---- */
+.finale { display: flex; flex-direction: column; align-items: center; }
+.finale .fhead { width: calc(100% - 24px); max-width: 420px; padding: 8px; }
+.fstage { position: relative; width: 360px; max-width: calc(100vw - 20px); aspect-ratio: 180 / 300; margin-top: 6px; border: 4px solid #06040e; box-shadow: 0 0 0 2px #ff3ec8, 0 0 18px rgba(255,62,200,.5); touch-action: none; user-select: none; -webkit-user-select: none; }
+.fstage canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; touch-action: none; }
+.fhud { position: absolute; top: 10px; left: 8px; right: 8px; display: flex; justify-content: space-between; font-size: 9px; color: #fff; text-shadow: 2px 2px 0 #000; pointer-events: none; }
+.fhud .fc { color: #ffcf3a; }
+.fj { position: absolute; top: 34%; width: 100%; text-align: center; font-size: 16px; text-shadow: 3px 3px 0 #000; pointer-events: none; }
+.fj.fpop { animation: fpop .35s steps(3) both; } @keyframes fpop { 0% { transform: scale(1.5); } 100% { transform: scale(1); opacity: .9; } }
+.fcd { position: absolute; top: 44%; width: 100%; text-align: center; font-size: 44px; color: #fff; text-shadow: 4px 0 0 #ff3ec8, -4px 0 0 #3ae8ff, 0 6px 0 #2a0a3a; pointer-events: none; }
+.fres .grade { font-size: 72px; line-height: 1; margin: 8px 0; text-shadow: 5px 0 0 #ff3ec8, -5px 0 0 #3ae8ff, 0 8px 0 #2a0a3a; }
+.fres .grade.g-S { color: #ffcf3a; } .fres .grade.g-A { color: #b8ff3a; } .fres .grade.g-B { color: #3ae8ff; } .fres .grade.g-C { color: #e070ff; } .fres .grade.g-D { color: #a8a8d0; }
+.fres .fstats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; text-align: left; max-width: 300px; margin: 10px auto; font-size: 8px; }

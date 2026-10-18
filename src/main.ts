@@ -18,6 +18,7 @@ import { installFrames } from './ui/frames';
 import { statusIcon, intentIcon, miscIcon, medallion } from './ui/icons';
 import { tone, mix } from './ui/pix';
 import { drawFestMap, landmark } from './ui/festmap';
+import { Finale, finaleHtml, type FinaleKind, type FinaleResult } from './ui/finale';
 import { sfx, setMuted } from './ui/audio';
 import type { EventDef, OwnedSkill, Element as El } from './types';
 
@@ -583,10 +584,41 @@ function endBattle() {
   R.finishBattle(r, b.hero.hp, b.kills);
   const rw = R.genRewards(r, battleType); r.gold += rw.gold;
   let lastWords = '';
-  if (battleType === 'boss') { const boss = b.enemies[0].edef!; lastWords = boss.lastWords ?? ''; if (lastWords && !meta.bossWords.includes(boss.id)) meta.bossWords.push(boss.id); saveMeta(meta); }
+  if (battleType === 'boss') { const boss = b.enemies[0].edef!; lastWords = boss.lastWords ?? ''; if (lastWords && !meta.bossWords.includes(boss.id)) meta.bossWords.push(boss.id); saveMeta(meta);
+    return finaleScreen(FINALE_OF[boss.id] ?? 'arrows', boss.name, res => rewardScreen(applyFinale(rw, res), lastWords, finaleNote(res))); }
   rewardScreen(rw, lastWords);
 }
-function rewardScreen(rw: { gold: number; options: R.Reward[] }, lastWords: string) {
+// ---------- Boss beat finale ----------
+/** Which rhythm skeleton each DJ boss ends with. All four appear by the 4th region; the final DJ gets DDR. */
+const FINALE_OF: Record<string, FinaleKind> = { boss_megaphone: 'lanes', boss_mxrror: 'circles', boss_kaleido: 'runner', boss_nullpointer: 'lanes', boss_baron: 'runner', boss_ringmaster: 'circles', boss_subsonic: 'arrows' };
+let lastFinale: { res: FinaleResult; grade: R.FinaleGrade; bonusGold: number; card: boolean } | null = null;
+function applyFinale(rw: { gold: number; options: R.Reward[] }, res: FinaleResult) {
+  const r = run!; const grade = R.finaleGrade(res.acc); const B = R.FINALE_BONUS[grade];
+  const bonusGold = Math.round(rw.gold * B.goldPct); r.gold += bonusGold; // base gold was already added: it is the floor
+  let card = false; if (B.card) { const x = R.finaleBonusReward(r, rw.options); if (x) { rw.options = [...rw.options, x]; card = true; } }
+  lastFinale = { res, grade, bonusGold, card }; saveMeta(meta);
+  return { gold: rw.gold, options: rw.options };
+}
+const finaleNote = (res: FinaleResult) => lastFinale ? `<div class="small" style="margin-top:6px"><b>BEAT FINALE ${lastFinale.grade}</b> (${Math.round(res.acc * 100)}%): ${lastFinale.bonusGold ? `${miscIcon('coin', 14)} +${lastFinale.bonusGold} bonus glowsticks` : 'base loot'}${lastFinale.card ? ' + 1 bonus card' : ''}</div>` : '';
+let finale: Finale | null = null;
+function finaleScreen(kind: FinaleKind, bossName: string, done: (res: FinaleResult) => void) {
+  const r = run!; const accent = R.region(r.depth).accent;
+  mount(`${topbar()}${finaleHtml({ kind, seed: r.seed, accent, bossName: esc(bossName) })}`, {}, e => { if (finale?.key(e.key)) e.preventDefault(); });
+  const cv = app.querySelector<HTMLCanvasElement>('.fcv')!;
+  finale = new Finale(cv, app.querySelector('.fstage')!, { kind, seed: r.seed + '|' + r.depth, accent, bossName }, res => { finale = null; finaleResults(kind, res, done); });
+  (window as any).__finale = finale;
+}
+function finaleResults(kind: FinaleKind, res: FinaleResult, done: (res: FinaleResult) => void) {
+  const grade = R.finaleGrade(res.acc); const B = R.FINALE_BONUS[grade]; (window as any).__finaleResult = { ...res, grade };
+  if (grade === 'S' || grade === 'A') sfx.evolve(); else sfx.win();
+  mount(`${topbar()}<div class="panel dark center fres"><div class="tiny muted">BEAT FINALE RESULTS</div><div class="grade g-${grade}">${grade}</div>
+    <div class="small">${Math.round(res.acc * 100)}% accuracy &middot; max combo ${res.maxCombo}</div>
+    <div class="fstats"><span style="color:#b8ff3a">PERFECT</span><b>${res.perfect}</b><span style="color:#3ae8ff">GOOD</span><b>${res.good}</b><span style="color:#ff4a6a">MISS</span><b>${res.miss}</b><span>SCORE</span><b>${res.score}</b></div>
+    <div class="small gain"><b>Bonus: ${esc(B.label)}</b></div><p class="tiny muted">Boss loot is yours either way. Good timing just adds more.</p>
+    <button class="primary" data-a="go">CLAIM LOOT</button></div>`, { go: () => done(res) }, e => { if (e.key === 'Enter' || e.key === ' ') done(res); });
+  void kind;
+}
+function rewardScreen(rw: { gold: number; options: R.Reward[] }, lastWords: string, note = '') {
   const r = run!; const boss = battleType === 'boss';
   const after = () => boss ? bossCleared() : stopDone();
   const card = (o: R.Reward) => o.kind === 'relic' ? `<div class="tiny kind">GEAR</div><div class="row"><b>${esc(RELIC[o.id].name)}</b><span class="grow"></span>${rar(o.rarity)}</div><div class="small">${esc(RELIC[o.id].desc)}</div>`
@@ -596,7 +628,7 @@ function rewardScreen(rw: { gold: number; options: R.Reward[] }, lastWords: stri
     if (o.kind === 'skill') return learnFlow(o.id, after, () => rewardScreen({ gold: 0, options: rw.options }, lastWords));
     R.applyReward(r, o); sfx.coin(); after();
   }));
-  mount(`${topbar()}<div class="panel dark center"><h2 class="victory">${boss ? 'DJ DEFEATED' : 'VIBE RESTORED'}</h2><div class="small">${rw.gold ? `${miscIcon('coin', 14)} +${rw.gold} glowsticks. ` : ''}Choose one reward, or skip for 15 glowsticks.</div>
+  mount(`${topbar()}<div class="panel dark center"><h2 class="victory">${boss ? 'DJ DEFEATED' : 'VIBE RESTORED'}</h2><div class="small">${rw.gold ? `${miscIcon('coin', 14)} +${rw.gold} glowsticks. ` : ''}Choose one reward, or skip for 15 glowsticks.</div>${note}
     ${lastWords ? `<div class="lore"><span class="src">Last words</span>"${esc(lastWords)}"</div>` : ''}</div>
     <div class="cards rewards">${rw.options.map((o, i) => `<div class="card reward r-${o.rarity}" data-a="o${i}" style="animation-delay:${i * 90}ms"><span class="kbd corner">${i + 1}</span>${card(o)}</div>`).join('')}</div>
     <div class="panel center"><button data-a="skip">SKIP (+15 GLOWSTICKS)</button></div>`, acts,
@@ -651,7 +683,14 @@ function journalScreen(back: () => void = titleScreen) {
   HEROES.forEach(h => { const locked = h.locked && !meta.unlocked.includes(h.id); const c = heroStatic(h.id, 1); if (locked) c.style.filter = 'brightness(0)'; put('#jh_' + h.id, c); });
 }
 
-if (location.search.includes('gallery')) import('./gallery').then(m => m.gallery(app)); else titleScreen();
+const FQ = new URLSearchParams(location.search).get('finale') as FinaleKind | null;
+if (FQ && ['lanes', 'circles', 'runner', 'arrows'].includes(FQ)) { // debug: ?finale=lanes|circles|runner|arrows launches that boss finale directly
+  const bossOf: Record<FinaleKind, string> = { lanes: 'boss_megaphone', circles: 'boss_mxrror', runner: 'boss_kaleido', arrows: 'boss_subsonic' };
+  run = R.newRun(new URLSearchParams(location.search).get('hero') ?? 'tempo', 'FINALE', meta); battleType = 'boss';
+  run.depth = Math.max(0, REGIONS.findIndex(g => g.boss === bossOf[FQ])); run.map = R.genMap(run);
+  const rw = R.genRewards(run, 'boss'); run.gold += rw.gold;
+  finaleScreen(FQ, ENEMY[bossOf[FQ]].name, res => rewardScreen(applyFinale(rw, res), ENEMY[bossOf[FQ]].lastWords ?? '', finaleNote(res)));
+} else if (location.search.includes('gallery')) import('./gallery').then(m => m.gallery(app)); else titleScreen();
 void mix;
 // Debug hooks for automated screenshots/tests.
 (window as any).__sfs = { get run() { return run; }, get battle() { return battle; }, startRun, mapScreen, startBattle, enterNode, R };

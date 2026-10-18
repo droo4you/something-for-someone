@@ -237,3 +237,21 @@ export function shrine(r: Run, id: string): string {
   if (id === 'faith') { const loss = Math.round(r.maxHp * 0.1); r.maxHp -= loss; r.hp = Math.min(r.hp, r.maxHp); r.defBonus += 1; r.energyBonus = (r.energyBonus ?? 0) + 1; return `-${loss} max Energy. +1 DEF, +1 max Vibe.`; }
   return 'You wave. The disco ball turns, very slightly, to watch you go.';
 }
+
+// ---------- Boss beat finale bonus (existing boss rewards are the floor; a good finale only adds) ----------
+export type FinaleGrade = 'S' | 'A' | 'B' | 'C' | 'D';
+export function finaleGrade(acc: number): FinaleGrade { return acc >= 0.95 ? 'S' : acc >= 0.85 ? 'A' : acc >= 0.7 ? 'B' : acc >= 0.5 ? 'C' : 'D'; }
+export const FINALE_BONUS: Record<FinaleGrade, { goldPct: number; card: boolean; label: string }> = {
+  S: { goldPct: 1, card: true, label: '+100% glowsticks and a bonus reward card' },
+  A: { goldPct: 0.6, card: true, label: '+60% glowsticks and a bonus reward card' },
+  B: { goldPct: 0.35, card: false, label: '+35% glowsticks' },
+  C: { goldPct: 0.15, card: false, label: '+15% glowsticks' },
+  D: { goldPct: 0, card: false, label: 'no bonus (base loot kept)' },
+};
+/** Extra boss reward card for A/S finales: rare-or-better gear not already offered. */
+export function finaleBonusReward(r: Run, offered: Reward[]): Reward | null {
+  const rng = nodeRng(r, 'finale'); const taken = new Set(offered.map(o => (o.kind === 'upgrade' ? 'u' + o.idx : o.id)));
+  for (let t = 0; t < 8; t++) { const x = pickRelic(r, rng, rollRarity(rng, 0.6) === 'common' ? 'rare' : rollRarity(rng, 0.6)); if (x && !taken.has(x.id)) return { kind: 'relic', id: x.id, rarity: x.rarity }; }
+  for (let t = 0; t < 8; t++) { const s = pickSkill(r, rng, 'rare'); if (s && !taken.has(s.id)) return { kind: 'skill', id: s.id, rarity: s.rarity }; }
+  return null;
+}

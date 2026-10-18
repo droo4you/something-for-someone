@@ -29,7 +29,32 @@ function wobble(freq: number, dur: number, rate = 8, vol = 0.06, delay = 0) {
   const g = a.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   o.connect(f).connect(g).connect(out()); o.start(t); lfo.start(t); o.stop(t + dur + 0.02); lfo.stop(t + dur + 0.02);
 }
+/** Clock for rhythm games: the AudioContext clock when audio is running (so hits line up with the
+ *  scheduled beat), otherwise performance time. Callers pick one source per session via clockSource(). */
+export function clockSource(): () => number {
+  const a = ac(); if (a && a.state === 'suspended') a.resume().catch(() => {});
+  if (a && a.state === 'running' && !muted) return () => a.currentTime;
+  return () => performance.now() / 1000;
+}
+/** Schedule a 128-BPM-style backing loop on the audio clock: kick every beat, hats on the off-beat,
+ *  claps on 2/4, a wobble every bar, a riser into the last bar. t0 is in clockSource() time. */
+export function scheduleTrack(clock: () => number, t0: number, bpm: number, beats: number, countIn: number) {
+  const a = ac(); if (!a || muted || a.state !== 'running') return;
+  const sp = 60 / bpm; const now = clock(); const d = (t: number) => Math.max(0, t - now);
+  for (let i = -countIn; i < beats; i++) {
+    const t = t0 + i * sp;
+    if (i < 0) { tone(i === -1 ? 1568 : 1047, 0.08, 'square', 0.05, 0, d(t), 5000); continue; }
+    kick(i % 4 === 0 ? 0.24 : 0.18, d(t)); noise(0.03, 0.025, d(t + sp / 2), 9000, 9000);
+    if (i % 4 === 1 || i % 4 === 3) noise(0.09, 0.04, d(t), 2500, 1200, 'bandpass');
+    if (i % 4 === 0) wobble([55, 49, 62, 41][(i / 4) % 4], sp * 1.6, 6 + (i % 8), 0.045, d(t));
+    if (i === beats - 4) noise(sp * 4, 0.04, d(t), 300, 9000, 'bandpass');
+  }
+  kick(0.3, d(t0 + beats * sp), 200);
+}
 export const sfx = {
+  perfect: () => { tone(1760, 0.05, 'square', 0.03, 0, 0, 6000); tone(2637, 0.06, 'square', 0.02, 0, 0.03, 6000); },
+  good: () => tone(1175, 0.05, 'square', 0.025, 0, 0, 4000),
+  miss: () => tone(160, 0.08, 'sawtooth', 0.03, -60, 0, 900),
   click: () => { tone(1320, 0.03, 'square', 0.025, 0, 0, 3000); noise(0.02, 0.02, 0, 9000, 9000); },
   hit: () => { kick(0.16, 0, 120); noise(0.06, 0.05, 0, 3000, 800, 'bandpass'); },
   crit: () => { kick(0.26, 0, 180); wobble(55, 0.28, 12, 0.07); noise(0.18, 0.06, 0, 8000, 400, 'lowpass'); },
