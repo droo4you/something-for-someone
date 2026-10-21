@@ -7,7 +7,7 @@ import { POTION } from './data/potions';
 import { ENEMY } from './data/enemies';
 import { REGIONS, FURTHER_MODIFIERS, SUNRISE_DEPTH } from './data/regions';
 import { LORE } from './data/lore';
-import { Battle, elMult, type Unit, type Action } from './engine/battle';
+import { Battle, DROP_MAX, DROP_PER_ACTION, elMult, type Unit, type Action } from './engine/battle';
 import * as R from './engine/run';
 import { loadMeta, saveMeta, UPGRADES, type Meta } from './engine/meta';
 import { newSeed, RNG } from './engine/rng';
@@ -18,6 +18,7 @@ import { installFrames } from './ui/frames';
 import { statusIcon, intentIcon, miscIcon, medallion } from './ui/icons';
 import { tone, mix } from './ui/pix';
 import { drawFestMap, landmark } from './ui/festmap';
+import { runDrop } from './ui/drop';
 import { Finale, finaleHtml, type FinaleKind, type FinaleResult } from './ui/finale';
 import { sfx, setMuted } from './ui/audio';
 import type { EventDef, OwnedSkill, Element as El } from './types';
@@ -442,6 +443,7 @@ function mountCombat() {
     if (k >= 1 && k <= 4) act({ kind: 'skill', i: k - 1, target });
     else if (e.key === 'a' || e.key === 'A') act({ kind: 'basic', target });
     else if (e.key === 'd' || e.key === 'D') act({ kind: 'defend' });
+    else if (e.key === 'q' || e.key === 'Q') startDrop();
     else if (e.key === 'f' || e.key === 'F') toggleFast();
     else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' || e.key === 'Tab') { e.preventDefault(); const al = b.enemiesAlive(); const ix = al.findIndex(x => x.uid === target); target = al[(ix + (e.key === 'ArrowLeft' ? al.length - 1 : 1)) % al.length].uid; updateCombat(); }
   };
@@ -487,13 +489,29 @@ function updateCombat() {
       <div class="skills">${r.skills.map((s, i) => { const d = SKILL[s.id]; const cost = b.skillCost(i); const el = d.el ?? b.hero.el; return `<button class="skill r-${d.rarity}" style="--elc:${EL_COL[el]}" data-a="s${i}" ${disabled || !b.canUse(i) ? 'disabled' : ''} >
         <span class="k">${i + 1}</span><span class="row nm2"><span class="gem"></span><b>${esc(d.name)}${s.up ? '+' : ''}</b></span><span class="tiny cost">${cost < d.cost ? 'FREE' : `${cost} VIBE`} &middot; ${GENRE[el].toUpperCase()}</span>${dmgLine(b, i, tgtU)}<span class="tiny">${kwHtml(d.desc)}</span></button>`; }).join('')}</div>
       <div class="basic"><button class="primary bact" data-a="atk" ${disabled ? 'disabled' : ''} data-tip="${esc(danceTip)}"><span>DANCE <span class="kbd">A</span></span><span class="tiny sub">${dance.n} dmg &middot; +1 Vibe</span></button><button class="bact" data-a="def" ${disabled ? 'disabled' : ''} data-tip="${esc(defTip)}"><span>CATCH THE BEAT <span class="kbd">D</span></span><span class="tiny sub">-50% dmg taken &middot; +${guardGain} Guard &middot; +1 Vibe</span></button>${r.potions.map((p, i) => `<button class="pot" data-a="p${i}" ${disabled ? 'disabled' : ''} title="${esc(POTION[p].desc)}">${potIcon(p)} ${esc(POTION[p].name)}${POTION[p].kind === 'food' ? ' <span class="kbd">TURN</span>' : ''}</button>`).join('')}<span class="grow"></span><span class="tiny muted hide-sm">Tap an enemy to target. Hover / long-press anything for details.</span></div>
+      ${dropHtml(b, tgtU, disabled)}
       <div class="log" id="log"></div>`;
   bindIn(acts, {
-    atk: () => act({ kind: 'basic', target }), def: () => act({ kind: 'defend' }), help: () => helpPanel(b),
+    atk: () => act({ kind: 'basic', target }), def: () => act({ kind: 'defend' }), help: () => helpPanel(b), drop: startDrop,
     ...Object.fromEntries(r.skills.map((_, i) => ['s' + i, () => act({ kind: 'skill', i, target })])),
     ...Object.fromEntries(r.potions.map((_, i) => ['p' + i, () => act({ kind: 'potion', i, target })])),
   });
   const tbar = app.querySelector('#tb'); if (tbar) { tbar.innerHTML = topbar(`<button class="sm" data-a="ff">${meta.fast ? 'SPEED x3' : 'SPEED x1'}</button>`); bindIn(tbar, { ...baseActs, ff: toggleFast }); }
+}
+// ---------- Hero Drop (once per battle rhythm ability) ----------
+function dropHtml(b: Battle, tgt: Unit, disabled: boolean) {
+  const lo = b.dropInfo(0, tgt) as any, hi = b.dropInfo(1, tgt) as any; const pct = Math.round((b.drop / DROP_MAX) * 100); const ready = b.dropReady();
+  const range = lo.id === 'bass' ? `${lo.dmg}-${hi.dmg} dmg` : lo.id === 'flow' ? `heal ${lo.heal}-${hi.heal} + cleanse` : lo.id === 'tempo' ? `${lo.hits}-${hi.hits} hits x ${lo.per}` : `${lo.shield}-${hi.shield} Guard +${lo.def}-${hi.def} DEF`;
+  const tip = `${hi.name} (DROP, once per battle): a short rhythm sequence, tap as each ring hits the pad. Accuracy scales it. 0%: ${lo.line}. 100%: ${hi.line}. Meter: +${DROP_PER_ACTION}% per action, + more when you take damage.`;
+  return `<button class="bact drop-btn ${ready ? 'ready' : ''}" data-a="drop" ${disabled || !ready ? 'disabled' : ''} data-tip="${esc(tip)}"><span>${b.dropUsed ? 'DROP USED' : ready ? `${hi.name}!` : 'DROP'} <span class="kbd">Q</span><span class="dropbar"><i style="width:${b.dropUsed ? 0 : pct}%"></i></span></span><span class="tiny sub">${b.dropUsed ? 'once per battle' : ready ? range + ' by accuracy' : pct + '% charged · ' + range}</span></button>`;
+}
+function startDrop() {
+  const b = battle!; if (animating || !b.waiting || !b.dropReady()) return;
+  const tgtU = b.enemies[target - 1]?.alive ? b.enemies[target - 1] : b.enemiesAlive()[0];
+  const lo = b.dropInfo(0, tgtU) as any, hi = b.dropInfo(1, tgtU) as any; animating = true; updateCombat(); sfx.drop();
+  runDrop(run!.heroId, hi.name, `${lo.id === 'bass' ? `${lo.dmg}-${hi.dmg} dmg` : lo.id === 'flow' ? `heal ${lo.heal}-${hi.heal}` : lo.id === 'tempo' ? `${lo.hits}-${hi.hits} hits` : `${lo.shield}-${hi.shield} Guard`} · accuracy scales it`,
+    () => sprites.get(0)?.express('shout', 260),
+    res => { animating = false; act({ kind: 'drop', acc: res.acc, target }); });
 }
 function act(a: Action) {
   const b = battle!; if (animating || !b.waiting) return;
@@ -683,8 +701,13 @@ function journalScreen(back: () => void = titleScreen) {
   HEROES.forEach(h => { const locked = h.locked && !meta.unlocked.includes(h.id); const c = heroStatic(h.id, 1); if (locked) c.style.filter = 'brightness(0)'; put('#jh_' + h.id, c); });
 }
 
+const DQ = new URLSearchParams(location.search).get('drop');
 const FQ = new URLSearchParams(location.search).get('finale') as FinaleKind | null;
-if (FQ && ['lanes', 'circles', 'runner', 'arrows'].includes(FQ)) { // debug: ?finale=lanes|circles|runner|arrows launches that boss finale directly
+if (DQ && ['bass', 'flow', 'tempo', 'wall'].includes(DQ)) { // debug: ?drop=<hero> starts an elite battle with a full Drop meter
+  run = R.newRun(DQ, 'DROPTEST', meta); run.map = R.genMap(run); run.pos = { col: 3, row: 0 }; startBattle('elite');
+  if (DQ === 'flow') { run.hp = battle!.hero.hp = Math.round(battle!.hero.maxHp * 0.4); battle!.addStatus(battle!.hero, 'burn', 3); }
+  battle!.drop = DROP_MAX; updateCombat(); (window as any).__battle = battle;
+} else if (FQ && ['lanes', 'circles', 'runner', 'arrows'].includes(FQ)) { // debug: ?finale=lanes|circles|runner|arrows launches that boss finale directly
   const bossOf: Record<FinaleKind, string> = { lanes: 'boss_megaphone', circles: 'boss_mxrror', runner: 'boss_kaleido', arrows: 'boss_subsonic' };
   run = R.newRun(new URLSearchParams(location.search).get('hero') ?? 'tempo', 'FINALE', meta); battleType = 'boss';
   run.depth = Math.max(0, REGIONS.findIndex(g => g.boss === bossOf[FQ])); run.map = R.genMap(run);

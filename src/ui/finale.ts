@@ -8,6 +8,7 @@
 import { clockSource, scheduleTrack, sfx } from './audio';
 import { tone } from './pix';
 import { RNG } from '../engine/rng';
+const touch = () => typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
 
 export type FinaleKind = 'lanes' | 'circles' | 'runner' | 'arrows';
 export interface FinaleResult { kind: FinaleKind; perfect: number; good: number; miss: number; total: number; maxCombo: number; score: number; acc: number }
@@ -19,6 +20,7 @@ const W = 180, H = 300;
 const LANE_COL = ['#ff3ec8', '#3ae8ff', '#b8ff3a', '#ffcf3a'];
 const LEAD: Record<FinaleKind, number> = { lanes: 1.7 * SP, circles: 2 * SP, runner: 2.4 * SP, arrows: 1.9 * SP };
 export const TITLE: Record<FinaleKind, string> = { lanes: 'DROP THE GEMS', circles: 'HIT THE LIGHTS', runner: 'RUN THE BEAT', arrows: 'DANCE DANCE DROP' };
+const HOWTO_TOUCH: Record<FinaleKind, string> = { lanes: 'Tap the lane as its gem hits the line', circles: 'Tap each circle as its ring closes', runner: 'Tap anywhere to jump on the beat', arrows: 'Tap the column as arrows reach the top' };
 export const HOWTO: Record<FinaleKind, string> = {
   lanes: 'Tap a lane as its gem hits the line (keys D F J K)', circles: 'Tap each circle as its ring closes (or Z / X / Space)',
   runner: 'Tap to jump each obstacle on the beat (or Space)', arrows: 'Tap the arrow column as arrows reach the top (arrow keys / WASD)',
@@ -90,13 +92,21 @@ function stageBg(g: CanvasRenderingContext2D, t: number, accent: string) {
 export interface FinaleOpts { kind: FinaleKind; seed: string; accent: string; bossName: string }
 export class Finale {
   notes: Note[]; clock = clockSource(); t0 = 0; combo = 0; maxCombo = 0; score = 0; perfect = 0; good = 0; miss = 0;
-  pops: { txt: string; c: string; x: number; y: number; at: number }[] = []; laneFlash = [0, 0, 0, 0]; jumpAt = -9; tripAt = -9; done = false; raf = 0;
+  pops: { txt: string; c: string; x: number; y: number; at: number }[] = []; laneFlash = [0, 0, 0, 0]; jumpAt = -9; tripAt = -9; done = false; raf = 0; unfit = () => {};
   g: CanvasRenderingContext2D; onEnd: (r: FinaleResult) => void; hud: HTMLElement;
   constructor(public cv: HTMLCanvasElement, hud: HTMLElement, public o: FinaleOpts, onEnd: (r: FinaleResult) => void) {
     this.notes = chart(o.kind, o.seed); cv.width = W; cv.height = H; this.g = cv.getContext('2d')!; this.onEnd = onEnd; this.hud = hud;
     this.t0 = this.clock() + COUNT_IN * SP + 0.25; scheduleTrack(this.clock, this.t0, BPM, BEATS, COUNT_IN);
     const down = (e: PointerEvent) => { e.preventDefault(); const r = cv.getBoundingClientRect(); this.tap(((e.clientX - r.left) / r.width) * W, ((e.clientY - r.top) / r.height) * H); };
     cv.addEventListener('pointerdown', down);
+    // mobile: full visual-viewport layout with a slim header, no scroll / zoom / selection while playing
+    document.body.classList.add('playing'); const root = cv.closest('.finale') as HTMLElement | null;
+    const stop = (e: Event) => e.preventDefault(); root?.addEventListener('touchmove', stop, { passive: false }); root?.addEventListener('dblclick', stop); root?.addEventListener('gesturestart', stop as any);
+    const fit = () => { const vv = window.visualViewport; const vw = vv?.width ?? innerWidth, vh = vv?.height ?? innerHeight;
+      const head = root?.querySelector<HTMLElement>('.fhead')?.offsetHeight ?? 0; const cs = root ? getComputedStyle(root) : null;
+      const pad = cs ? parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) : 0; const avH = vh - head - pad - 14;
+      const w = Math.floor(Math.min(vw - 12, avH * (W / H), 480)); hud.style.width = w + 'px'; hud.style.height = Math.floor(w * (H / W)) + 'px'; };
+    fit(); window.visualViewport?.addEventListener('resize', fit); window.addEventListener('resize', fit); this.unfit = () => { window.visualViewport?.removeEventListener('resize', fit); window.removeEventListener('resize', fit); document.body.classList.remove('playing'); };
     const loop = () => { if (this.done) return; this.frame(); this.raf = requestAnimationFrame(loop); }; loop();
   }
   get now() { return this.clock() - this.t0; }
@@ -159,7 +169,7 @@ export class Finale {
     if (t > BEATS * SP + 0.6 && !this.done) this.finish();
   }
   finish() {
-    this.done = true; cancelAnimationFrame(this.raf);
+    this.done = true; cancelAnimationFrame(this.raf); this.unfit();
     const total = this.notes.length; const acc = total ? (this.perfect + this.good * 0.6) / total : 0;
     this.onEnd({ kind: this.o.kind, perfect: this.perfect, good: this.good, miss: this.miss, total, maxCombo: this.maxCombo, score: this.score, acc });
   }
@@ -171,7 +181,7 @@ export class Finale {
       g.fillStyle = '#05030c'; g.fillRect(Math.round(l * lw), 0, 1, H);
       const fl = t - this.laneFlash[l] < 0.12; g.globalAlpha = fl ? 0.35 : 0.12; g.fillStyle = LANE_COL[l]; g.fillRect(l * lw + 2, HIT_Y - 60, lw - 4, 60); g.globalAlpha = 1;
       gem(g, l * lw + 6, HIT_Y - 4, lw - 12, 9, fl ? '#ffffff' : tone(LANE_COL[l], -0.25)); g.fillStyle = '#0a0612'; g.fillRect(l * lw + 10, HIT_Y - 1, lw - 20, 3);
-      g.font = '8px "Press Start 2P"'; g.textAlign = 'center'; g.fillStyle = tone(LANE_COL[l], 0.2); g.fillText('DFJK'[l], (l + 0.5) * lw, HIT_Y + 22);
+      if (!touch()) { g.font = '8px "Press Start 2P"'; g.textAlign = 'center'; g.fillStyle = tone(LANE_COL[l], 0.2); g.fillText('DFJK'[l], (l + 0.5) * lw, HIT_Y + 22); }
     }
     for (const n of this.notes) {
       if (n.judged && n.judged !== 'miss') { if (t - n.at < 0.15) ring(g, (n.lane + 0.5) * lw, HIT_Y, 6 + (t - n.at) * 80, '#ffffff', 2); continue; }
@@ -187,7 +197,7 @@ export class Finale {
       const [x, y] = this.pos(n, t); if (y > H + 10 || y < -10) continue; if (n.judged === 'miss') g.globalAlpha = 0.35;
       g.fillStyle = '#0a0612'; arrow(g, x + 1, y + 1, n.lane, '#0a0612', 3); arrow(g, x, y, n.lane, LANE_COL[n.lane], 3); g.globalAlpha = 1;
     }
-    g.font = '7px "Press Start 2P"'; g.textAlign = 'center'; g.fillStyle = '#6a5a8a'; ['<', 'v', '^', '>'].forEach((s, l) => g.fillText(s, (l + 0.5) * lw, H - 6));
+    if (!touch()) { g.font = '7px "Press Start 2P"'; g.textAlign = 'center'; g.fillStyle = '#6a5a8a'; ['<', 'v', '^', '>'].forEach((s, l) => g.fillText(s, (l + 0.5) * lw, H - 6)); }
   }
   drawCircles(t: number) {
     const g = this.g; const L = LEAD.circles;
@@ -228,9 +238,9 @@ export class Finale {
     g.fillStyle = '#3ae8ff'; g.fillRect(bx + 10, by + 2 - (jy ? 3 : 0), 1, 6); // glowstick
   }
 }
-const HIT_Y = 250, REC_Y = 34, GROUND = 220, RUN_X = 44;
+const HIT_Y = 236, REC_Y = 34, GROUND = 220, RUN_X = 44;
 
 export function finaleHtml(o: FinaleOpts) {
-  return `<div class="finale"><div class="panel dark center fhead"><div class="tiny muted">BEAT FINALE &middot; ${o.bossName}</div><h2 class="victory" style="margin:4px 0">${TITLE[o.kind]}</h2><div class="tiny">${HOWTO[o.kind]}</div></div>
+  return `<div class="finale"><div class="panel dark center fhead"><div class="tiny muted">BEAT FINALE &middot; ${o.bossName}</div><h2 class="victory" style="margin:4px 0">${TITLE[o.kind]}</h2><div class="tiny">${(touch() ? HOWTO_TOUCH : HOWTO)[o.kind]}</div></div>
     <div class="fstage"><canvas class="px fcv"></canvas><div class="fhud"><span class="fs">000000</span><span class="fc"></span></div><div class="fj"></div><div class="fcd"></div></div></div>`;
 }

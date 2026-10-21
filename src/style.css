@@ -226,3 +226,26 @@ input { font-family: inherit; font-size: 10px; padding: 8px; border: 0; box-shad
 .fres .grade { font-size: 72px; line-height: 1; margin: 8px 0; text-shadow: 5px 0 0 #ff3ec8, -5px 0 0 #3ae8ff, 0 8px 0 #2a0a3a; }
 .fres .grade.g-S { color: #ffcf3a; } .fres .grade.g-A { color: #b8ff3a; } .fres .grade.g-B { color: #3ae8ff; } .fres .grade.g-C { color: #e070ff; } .fres .grade.g-D { color: #a8a8d0; }
 .fres .fstats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; text-align: left; max-width: 300px; margin: 10px auto; font-size: 8px; }
+
+/* ---- mobile-first full-viewport play (finales + Drop) ---- */
+body.playing { overflow: hidden; overscroll-behavior: none; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+body.playing .topbar, body.playing #tb { display: none; }
+.dropov { position: fixed; inset: 0; height: 100vh; height: 100dvh; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) calc(env(safe-area-inset-bottom) + 12px) env(safe-area-inset-left);
+  background: radial-gradient(ellipse at 50% 55%, rgba(60,20,90,.82), rgba(6,4,14,.94)); touch-action: none; -webkit-user-select: none; user-select: none; }
+.dropov .dhead { text-align: center; font-size: 14px; display: flex; flex-direction: column; gap: 6px; padding: 0 12px; text-shadow: 2px 2px 0 #000; }
+.dropov .dcv { width: min(86vw, 52dvh); aspect-ratio: 1; image-rendering: pixelated; }
+.dropov .dj { height: 20px; font-size: 16px; text-shadow: 3px 3px 0 #000; }
+.dropov .dhint { color: #c8c0e8; padding: 0 16px; text-align: center; }
+.drop-btn { width: 100%; margin-top: 6px; min-height: 48px; }
+.drop-btn.ready { animation: dropglow var(--beat) steps(2) infinite; border-image: none; box-shadow: 0 0 0 3px #ff3ec8, 0 0 16px #ff3ec8; }
+@keyframes dropglow { 50% { box-shadow: 0 0 0 3px #3ae8ff, 0 0 22px #3ae8ff; } }
+.dropbar { display: inline-block; width: 90px; height: 8px; background: #140c1c; box-shadow: 0 0 0 2px #06040e; vertical-align: middle; margin-left: 6px; }
+.dropbar i { display: block; height: 100%; background: linear-gradient(90deg, #ff3ec8, #3ae8ff); }
+/* finale: fixed full-viewport layout, slim header, stage sized by JS to the visual viewport */
+body.playing .finale { position: fixed; inset: 0; height: 100vh; height: 100dvh; z-index: 40; justify-content: flex-start; gap: 4px; background: #06040e;
+  padding: calc(env(safe-area-inset-top) + 4px) env(safe-area-inset-right) calc(env(safe-area-inset-bottom) + 10px) env(safe-area-inset-left); touch-action: none; }
+body.playing .finale .fhead { padding: 4px 8px; margin: 0; width: calc(100% - 12px); display: flex; gap: 8px; align-items: center; justify-content: center; flex-wrap: wrap; }
+body.playing .finale .fhead h2 { font-size: 11px; margin: 0 !important; } body.playing .finale .fhead .tiny { font-size: 7px; }
+body.playing .fstage { margin-top: 0; max-width: none; aspect-ratio: auto; }
+@media (pointer: coarse) { .kbd, .kbd.corner { display: none !important; } }

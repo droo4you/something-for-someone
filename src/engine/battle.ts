@@ -20,7 +20,7 @@ export type BEvent =
   | { k: 'phase'; uid: number; s: string }
   | { k: 'turn'; uid: number };
 
-export type Action = { kind: 'skill'; i: number; target: number } | { kind: 'basic'; target: number } | { kind: 'defend' } | { kind: 'potion'; i: number; target: number };
+export type Action = { kind: 'skill'; i: number; target: number } | { kind: 'basic'; target: number } | { kind: 'defend' } | { kind: 'potion'; i: number; target: number } | { kind: 'drop'; acc: number; target: number };
 
 const BEATS: Record<string, Element> = { fire: 'wind', wind: 'earth', earth: 'water', water: 'fire' };
 export function elMult(a: Element, d: Element): number {
@@ -30,11 +30,13 @@ export function elMult(a: Element, d: Element): number {
   return 1;
 }
 
+export const DROP_MAX = 100, DROP_PER_ACTION = 14;
 export class Battle {
   hero: Unit; enemies: Unit[]; order: Unit[] = []; idx = 0; round = 0;
   energy = 3; maxEnergy: number; freeSkills = 0; skillCount = 0;
   events: BEvent[] = []; waiting = false; over: 'win' | 'lose' | null = null;
   rng: RNG; crit: number; critMult: number; burnBonus: number; bleedBonus: number; atkPct: number;
+  drop = 0; dropUsed = false; lastDrop: any = null; // hero Drop meter 0..DROP_MAX, once per battle
   kills = 0; turns = 0; called = false; lastSkill: { id: string; up: boolean } | null = null; mirrorTick = 0;
   constructor(public run: Run, defs: EnemyDef[], public depth: number, seed: number, public mods: string[] = []) {
     this.rng = new RNG(seed);
@@ -209,6 +211,7 @@ export class Battle {
     tgt.hp = Math.max(0, tgt.hp - real);
     this.emit({ k: 'dmg', uid: tgt.uid, n: real, hp: tgt.hp, crit, eff: em > 1 ? 'super' : em < 1 ? 'weak' : undefined, src: att.uid, def: !!tgt.defending });
     if (absorbed && !real) this.emit({ k: 'text', uid: tgt.uid, s: 'Guarded' });
+    if (tgt.isHero && real > 0) this.chargeDrop((real / tgt.maxHp) * 120);
     if (!att.isHero && tgt.isHero && tgt.st.thorns) { this.rawDamage(att, tgt.st.thorns * 2 + relicMod(this.run, 'thorns'), 'Spikes'); }
     this.afterHit(tgt);
     return real;
@@ -233,6 +236,11 @@ export class Battle {
       if (pd.kind !== 'food') return; // hydration is a free action; food takes the turn
       this.waiting = false; this.endTurn(h); this.idx++; this.advance(); return;
     }
+    if (a.kind === 'drop') {
+      if (!this.dropReady()) return;
+      this.dropUsed = true; this.drop = 0; this.doDrop(Math.max(0, Math.min(1, a.acc)), tgt);
+      this.waiting = false; if (this.checkEnd()) return; this.endTurn(h); this.idx++; this.advance(); return;
+    }
     if (a.kind === 'skill') {
       if (!this.canUse(a.i)) return;
       const own = this.run.skills[a.i]; const sd = SKILL[own.id]; const cost = this.skillCost(a.i);
@@ -249,6 +257,7 @@ export class Battle {
       this.emit({ k: 'act', uid: 0, name: 'Catch the Beat' });
       h.defending = true; this.gainEnergy(1); this.gainShield(h, 3 + h.def);
     }
+    this.chargeDrop(DROP_PER_ACTION);
     this.waiting = false;
     if (this.checkEnd()) return;
     this.endTurn(h); this.idx++;
@@ -301,6 +310,37 @@ export class Battle {
       mult = Math.max(0.9, Math.min(1.8, mult || 1));
       u.intent = { k: 'atk', name: `Remix: ${sd.name}`, mult, ...(status ? { status } : {}) };
     }
+  }
+  // ---------------- Hero Drop ----------------
+  chargeDrop(n: number) { if (!this.dropUsed) this.drop = Math.min(DROP_MAX, this.drop + n); }
+  dropReady() { return !this.dropUsed && this.drop >= DROP_MAX; }
+  /** Numbers for a Drop at a given accuracy (0..1). Shared by the engine and the UI tooltip so they never disagree. */
+  dropInfo(acc: number, tgt?: Unit) {
+    const h = this.hero; const id = this.run.heroId; const t = tgt ?? this.enemiesAlive()[0] ?? this.enemies[0];
+    switch (id) {
+      case 'bass': { const mult = 2 + 2 * acc; const d = this.calc(h, t, mult, h.el); return { id, name: 'SUB DROP', mult, burn: acc >= 0.75 ? 3 : 0, dmg: d.n, em: d.em,
+        line: `ATK ${Math.round(this.atkOf(h))} x ${Math.round(mult * 100)}%${d.em !== 1 ? ` x${d.em} genre` : ''} - DEF ${t.def} = ${d.n} dmg${acc >= 0.75 ? ' + 3 Burn' : ''}` }; }
+      case 'flow': { const heal = Math.round(h.maxHp * (0.15 + 0.2 * acc)); const vibe = 1 + Math.round(2 * acc); return { id, name: 'HEALING WAVE', heal, vibe,
+        line: `heal ${Math.round((0.15 + 0.2 * acc) * 100)}% of ${h.maxHp} Energy = ${heal}, cleanse debuffs, +${vibe} Vibe` }; }
+      case 'tempo': { const hits = 2 + Math.min(3, Math.floor(3 * acc + 1e-9)); const d = this.calc(h, t, 0.6, h.el); return { id, name: 'DOUBLE-TIME DROP', hits, per: d.n, em: d.em,
+        line: `${hits} hits x (ATK ${Math.round(this.atkOf(h))} x 60%${d.em !== 1 ? ` x${d.em} genre` : ''} - DEF ${t.def}) = ${hits} x ${d.n} dmg, +25% crit each` }; }
+      default: { const shield = Math.round((6 + 3 * h.def) * (0.5 + acc)); const def = 1 + Math.round(2 * acc); const spikes = 1 + Math.round(2 * acc); return { id, name: 'WALL OF SOUND', shield, def, spikes,
+        line: `Guard (6 + 3 x DEF ${h.def}) x ${Math.round((0.5 + acc) * 100)}% = ${shield}, +${def} DEF this fight, taunt: ${spikes} Spikes (attackers take ${spikes * 2})` }; }
+    }
+  }
+  doDrop(acc: number, tgt: Unit) {
+    const h = this.hero; const info = this.dropInfo(acc, tgt) as any;
+    const snap = () => ({ ehp: this.enemies.reduce((a, e) => a + e.hp, 0), hp: h.hp, shield: h.st.shield ?? 0, def: h.def, spikes: h.st.thorns ?? 0, vibe: this.energy, debuffs: ['burn', 'bleed', 'soak', 'weak', 'stun'].filter(k => (h.st as any)[k]).length });
+    const before = snap();
+    this.emit({ k: 'act', uid: 0, name: `${info.name} ${Math.round(acc * 100)}%` });
+    this.emit({ k: 'text', uid: 0, s: info.line });
+    switch (info.id) {
+      case 'bass': this.strike(h, tgt, info.mult, h.el); if (info.burn) this.addStatus(tgt, 'burn', info.burn); break;
+      case 'flow': this.heal(h, info.heal); for (const k of ['burn', 'bleed', 'soak', 'weak', 'stun'] as StatusKey[]) delete h.st[k]; this.emit({ k: 'text', uid: 0, s: 'Cleansed' }); this.gainEnergy(info.vibe); break;
+      case 'tempo': for (let i = 0; i < info.hits; i++) { const al = this.enemiesAlive(); if (!al.length) break; this.strike(h, tgt.alive ? tgt : al[0], 0.6, h.el, 0.25); } break;
+      default: this.gainShield(h, info.shield); h.def += info.def; this.addStatus(h, 'thorns', info.spikes); this.emit({ k: 'text', uid: 0, s: `DEF +${info.def}` }); break;
+    }
+    this.lastDrop = { acc, name: info.name, line: info.line, before, after: snap() };
   }
   intentDamage(u: Unit): number {
     const m = u.intent; if (!m || m.k !== 'atk') return 0;
